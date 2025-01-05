@@ -68,7 +68,7 @@
 
 ### Acknowledgment
 
-- Thanks to Tony Zaho, Zipeng Fu and colleagues for open sourcing ACT policy, ALOHA environments and datasets. Ours are adapted from [ALOHA](https://tonyzhaozh.github.io/aloha) and [Mobile ALOHA](https://mobile-aloha.github.io).
+- Thanks to Tony Zhao, Zipeng Fu and colleagues for open sourcing ACT policy, ALOHA environments and datasets. Ours are adapted from [ALOHA](https://tonyzhaozh.github.io/aloha) and [Mobile ALOHA](https://mobile-aloha.github.io).
 - Thanks to Cheng Chi, Zhenjia Xu and colleagues for open sourcing Diffusion policy, Pusht environment and datasets, as well as UMI datasets. Ours are adapted from [Diffusion Policy](https://diffusion-policy.cs.columbia.edu) and [UMI Gripper](https://umi-gripper.github.io).
 - Thanks to Nicklas Hansen, Yunhai Feng and colleagues for open sourcing TDMPC policy, Simxarm environments and datasets. Ours are adapted from [TDMPC](https://github.com/nicklashansen/tdmpc) and [FOWM](https://www.yunhaifeng.com/FOWM).
 - Thanks to Antonio Loquercio and Ashish Kumar for their early support.
@@ -153,10 +153,12 @@ python lerobot/scripts/visualize_dataset.py \
     --episode-index 0
 ```
 
-or from a dataset in a local folder with the root `DATA_DIR` environment variable (in the following case the dataset will be searched for in `./my_local_data_dir/lerobot/pusht`)
+or from a dataset in a local folder with the `root` option and the `--local-files-only` (in the following case the dataset will be searched for in `./my_local_data_dir/lerobot/pusht`)
 ```bash
-DATA_DIR='./my_local_data_dir' python lerobot/scripts/visualize_dataset.py \
+python lerobot/scripts/visualize_dataset.py \
     --repo-id lerobot/pusht \
+    --root ./my_local_data_dir \
+    --local-files-only 1 \
     --episode-index 0
 ```
 
@@ -208,12 +210,10 @@ dataset attributes:
 
 A `LeRobotDataset` is serialised using several widespread file formats for each of its parts, namely:
 - hf_dataset stored using Hugging Face datasets library serialization to parquet
-- videos are stored in mp4 format to save space or png files
-- episode_data_index saved using `safetensor` tensor serialization format
-- stats saved using `safetensor` tensor serialization format
-- info are saved using JSON
+- videos are stored in mp4 format to save space
+- metadata are stored in plain json/jsonl files
 
-Dataset can be uploaded/downloaded from the HuggingFace hub seamlessly. To work on a local dataset, you can set the `DATA_DIR` environment variable to your root dataset folder as illustrated in the above section on dataset visualization.
+Dataset can be uploaded/downloaded from the HuggingFace hub seamlessly. To work on a local dataset, you can use the `local_files_only` argument and specify its location with the `root` argument if it's not in the default `~/.cache/huggingface/lerobot` location.
 
 ### Evaluate a pretrained policy
 
