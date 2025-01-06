@@ -25,6 +25,7 @@ from lerobot.common.robot_devices.utils import busy_wait
 from lerobot.common.utils.utils import get_safe_torch_device, init_hydra_config, set_global_seed
 from lerobot.scripts.eval import get_pretrained_policy_path
 
+from teleop_tongs.teleop_tongs import DexTeleop
 
 def log_control_info(robot: Robot, dt_s, episode_index=None, frame_index=None, fps=None):
     log_items = []
@@ -209,6 +210,9 @@ def record_episode(
     device,
     use_amp,
     fps,
+    use_tongs,
+    urdf_path,
+    cam_calib_path,
 ):
     control_loop(
         robot=robot,
@@ -221,6 +225,9 @@ def record_episode(
         use_amp=use_amp,
         fps=fps,
         teleoperate=policy is None,
+        use_tongs=use_tongs,
+        urdf_path=urdf_path,
+        cam_calib_path=cam_calib_path,
     )
 
 
@@ -236,7 +243,17 @@ def control_loop(
     device=None,
     use_amp=None,
     fps=None,
+    use_tongs=False,
+    urdf_path: str | None = None,
+    cam_calib_path: str | None = None
 ):
+    if use_tongs:
+        if cam_calib_path is None:
+            cam_calib_path = "lerobot/configs/camera_calibration_results.yaml"
+        if urdf_path is None:
+            urdf_path = "lerobot/configs/giraffe.urdf"
+        dt = DexTeleop(urdf_path=urdf_path, cam_calib_path=cam_calib_path, degree=True)
+
     # TODO(rcadene): Add option to record logs
     if not robot.is_connected:
         robot.connect()
@@ -259,7 +276,7 @@ def control_loop(
         start_loop_t = time.perf_counter()
 
         if teleoperate:
-            observation, action = robot.teleop_step(record_data=True)
+            observation, action = robot.teleop_step(record_data=True, dex_teleop=dt)
         else:
             observation = robot.capture_observation()
 

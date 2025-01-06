@@ -502,26 +502,49 @@ class ManipulatorRobot:
             self.follower_arms[name].write("Acceleration", 254)
 
     def teleop_step(
-        self, record_data=False
+        self, record_data=False, dex_teleop=None
     ) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
+        # if self.robot_type in ["koch", "koch_bimanual", "aloha"]:
+        #     from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
+        # elif self.robot_type in ["so100", "moss"]:
+        #     from lerobot.common.robot_devices.motors.feetech import TorqueMode
+
+        # # We assume that at connection time, arms are in a rest position, and torque can
+        # # be safely disabled to run calibration and/or set robot preset configurations.
+        # for name in self.follower_arms:
+        #     self.follower_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
+        # for name in self.leader_arms:
+        #     self.leader_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
 
         # Prepare to assign the position of the leader to the follower
-        leader_pos = {}
-        for name in self.leader_arms:
-            before_lread_t = time.perf_counter()
-            leader_pos[name] = self.leader_arms[name].read("Present_Position")
-            leader_pos[name] = torch.from_numpy(leader_pos[name])
-            self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
+        use_tongs = False
+        if dex_teleop is not None:
+            use_tongs = True
+            tong_goal_pos = dex_teleop.get_goal_pose() # angles in radians
+            print(f"tong_goal_pos: {tong_goal_pos}")
+        
+        if not use_tongs:
+            leader_pos = {}
+            for name in self.leader_arms:
+                before_lread_t = time.perf_counter()
+                leader_pos[name] = self.leader_arms[name].read("Present_Position")
+                leader_pos[name] = torch.from_numpy(leader_pos[name])
+                self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
 
-        # Send goal position to the follower
+            # Send goal position to the follower
         follower_goal_pos = {}
         for name in self.follower_arms:
             before_fwrite_t = time.perf_counter()
-            goal_pos = leader_pos[name]
+            goal_pos = leader_pos[name] if not use_tongs else tong_goal_pos
+            if goal_pos is None:
+                goal_pos = self.follower_arms[name].read("Present_Position")
+                # print only 4 digits after decimal
+                formatted_values = [f"{val:.4f}" for val in goal_pos]
+                print(f"present_pos: {formatted_values}")
 
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
@@ -529,11 +552,11 @@ class ManipulatorRobot:
                 present_pos = self.follower_arms[name].read("Present_Position")
                 present_pos = torch.from_numpy(present_pos)
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
-
+            goal_pos = np.array(goal_pos, dtype=np.int32)
             # Used when record_data=True
-            follower_goal_pos[name] = goal_pos
+            follower_goal_pos[name] = torch.from_numpy(goal_pos)
 
-            goal_pos = goal_pos.numpy().astype(np.int32)
+            # goal_pos = goal_pos.numpy().astype(np.int32)
             self.follower_arms[name].write("Goal_Position", goal_pos)
             self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
 

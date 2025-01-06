@@ -172,14 +172,25 @@ def calibrate(robot: Robot, arms: list[str] | None):
 
 @safe_disconnect
 def teleoperate(
-    robot: Robot, fps: int | None = None, teleop_time_s: float | None = None, display_cameras: bool = False
+    robot: Robot, fps: int | None = None,
+    teleop_time_s: float | None = None,
+    display_cameras: bool = False,
+    urdf_path: str | None = None,
+    cam_calib_path: str | None = None
 ):
+    use_tongs = False
+    if cam_calib_path is not None:
+        use_tongs = True
+
     control_loop(
         robot,
         control_time_s=teleop_time_s,
         fps=fps,
         teleoperate=True,
         display_cameras=display_cameras,
+        use_tongs=use_tongs,
+        urdf_path=urdf_path,
+        cam_calib_path=cam_calib_path
     )
 
 
@@ -207,6 +218,8 @@ def record(
     resume: bool = False,
     # TODO(rcadene, aliberts): remove local_files_only when refactor with dataset as argument
     local_files_only: bool = False,
+    urdf_path: str | None = None,
+    cam_calib_path: str | None = None
 ) -> LeRobotDataset:
     # TODO(rcadene): Add option to record logs
     listener = None
@@ -231,7 +244,7 @@ def record(
             logging.warning(
                 f"There is a mismatch between the provided fps ({fps}) and the one from policy config ({policy_fps})."
             )
-
+    
     if resume:
         dataset = LeRobotDataset(
             repo_id,
@@ -272,6 +285,10 @@ def record(
     if has_method(robot, "teleop_safety_stop"):
         robot.teleop_safety_stop()
 
+    use_tongs = False
+    if cam_calib_path is not None:
+        use_tongs = True
+
     recorded_episodes = 0
     while True:
         if recorded_episodes >= num_episodes:
@@ -293,6 +310,9 @@ def record(
             device=device,
             use_amp=use_amp,
             fps=fps,
+            use_tongs=use_tongs,
+            urdf_path=urdf_path,
+            cam_calib_path=cam_calib_path
         )
 
         # Execute a few seconds without recording to give time to manually reset the environment
@@ -402,6 +422,18 @@ if __name__ == "__main__":
         type=int,
         default=1,
         help="Display all cameras on screen (set to 1 to display or 0).",
+    )
+    parser_teleop.add_argument(
+        "--cam-calib-path",
+        type=str,
+        default="lerobot/configs/camera_calibration_results.yaml",
+        help="Path to the YAML file containing the camera calibration results.",
+    )
+    parser_teleop.add_argument(
+        "--urdf-path",
+        type=str,
+        default="lerobot/configs/giraffe.urdf",
+        help="Path to the URDF file for the robot.",
     )
 
     parser_record = subparsers.add_parser("record", parents=[base_parser])

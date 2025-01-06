@@ -15,23 +15,10 @@ calibration_dir: .cache/calibration/so100
 # the number of motors in your follower arms.
 max_relative_target: null
 
-leader_arms:
-  main:
-    _target_: lerobot.common.robot_devices.motors.feetech.FeetechMotorsBus
-    port: /dev/tty.usbmodem585A0080511
-    motors:
-      # name: (index, model)
-      shoulder_pan: [1, "sts3215"]
-      shoulder_lift: [2, "sts3215"]
-      elbow_flex: [3, "sts3215"]
-      wrist_flex: [4, "sts3215"]
-      wrist_roll: [5, "sts3215"]
-      gripper: [6, "sts3215"]
-
 follower_arms:
   main:
     _target_: lerobot.common.robot_devices.motors.feetech.FeetechMotorsBus
-    port: /dev/tty.usbmodem585A0080511
+    port: /dev/ttyACM0
     motors:
       # name: (index, model)
       shoulder_pan: [1, "sts3215"]
@@ -48,9 +35,9 @@ cameras:
     fps: 30
     width: 640
     height: 480
-  phone:
-    _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
-    camera_index: 1
-    fps: 30
-    width: 640
-    height: 480
+  # webcam:
+  #   _target_: lerobot.common.robot_devices.cameras.opencv.OpenCVCamera
+  #   camera_index: 2
+  #   fps: 30
+  #   width: 640
+  #   height: 480
