@@ -490,17 +490,17 @@ class ManipulatorRobot:
             # Mode=0 for Position Control
             self.follower_arms[name].write("Mode", 0)
             # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-            self.follower_arms[name].write("P_Coefficient", 4)
+            self.follower_arms[name].write("P_Coefficient", 2)
             # Set I_Coefficient and D_Coefficient to default value 0 and 32
             self.follower_arms[name].write("I_Coefficient", 0)
-            self.follower_arms[name].write("D_Coefficient", 16)
+            self.follower_arms[name].write("D_Coefficient", 8)
             # Close the write lock so that Maximum_Acceleration gets written to EPROM address,
             # which is mandatory for Maximum_Acceleration to take effect after rebooting.
             self.follower_arms[name].write("Lock", 0)
             # Set Maximum_Acceleration to 254 to speedup acceleration and deceleration of
             # the motors. Note: this configuration is not in the official STS3215 Memory Table
             self.follower_arms[name].write("Maximum_Acceleration", 254)
-            self.follower_arms[name].write("Acceleration", 40)
+            self.follower_arms[name].write("Acceleration", 10)
 
     def teleop_step(
         self, record_data=False, dex_teleop=None
@@ -509,6 +509,7 @@ class ManipulatorRobot:
             raise RobotDeviceNotConnectedError(
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
+        # TODO(carpit680): Remove this torque disabling part below.
         # if self.robot_type in ["koch", "koch_bimanual", "aloha"]:
         #     from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
         # elif self.robot_type in ["so100", "moss"]:
@@ -543,6 +544,8 @@ class ManipulatorRobot:
             goal_pos = leader_pos[name] if not use_tongs else tong_goal_pos
             if goal_pos is None:
                 goal_pos = self.follower_arms[name].read("Present_Position") if self.prev_pos is None else self.prev_pos
+
+            # TODO(carpit680): Move this offset part to a config if it is even required.
             # elif use_tongs:
             #     # offsets = [-180, 88, 90, 180, -180, 0]
             #     offsets = [ 0] * 6
@@ -560,12 +563,15 @@ class ManipulatorRobot:
                 present_pos = self.follower_arms[name].read("Present_Position")
                 present_pos = torch.from_numpy(present_pos)
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
+
+            # TODO(carpit680): Remove this debug code once the tongs are ready.
             # goal_pos = self.follower_arms[name].read("Present_Position")
             # if tong_goal_pos is not None:
             #     goal_pos[0] = tong_goal_pos[0]
             #     goal_pos[1] = tong_goal_pos[1]
             #     goal_pos[2] = tong_goal_pos[2]
             #     goal_pos[3] = tong_goal_pos[3]
+
             self.prev_pos = goal_pos
             goal_pos = np.array(goal_pos, dtype=np.int32)
             formatted_values = [f"{val:.4f}" for val in goal_pos]
