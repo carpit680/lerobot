@@ -225,6 +225,7 @@ class ManipulatorRobot:
         self.cameras = self.config.cameras
         self.is_connected = False
         self.logs = {}
+        self.prev_pos = None
 
     def get_motor_names(self, arm: dict[str, MotorsBus]) -> list:
         return [f"{arm}_{motor}" for arm, bus in arm.items() for motor in bus.motors]
@@ -489,9 +490,9 @@ class ManipulatorRobot:
             # Mode=0 for Position Control
             self.follower_arms[name].write("Mode", 0)
             # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-            self.follower_arms[name].write("P_Coefficient", 16)
+            self.follower_arms[name].write("P_Coefficient", 8)
             # Set I_Coefficient and D_Coefficient to default value 0 and 32
-            self.follower_arms[name].write("I_Coefficient", 0)
+            self.follower_arms[name].write("I_Coefficient", 1)
             self.follower_arms[name].write("D_Coefficient", 32)
             # Close the write lock so that Maximum_Acceleration gets written to EPROM address,
             # which is mandatory for Maximum_Acceleration to take effect after rebooting.
@@ -499,7 +500,7 @@ class ManipulatorRobot:
             # Set Maximum_Acceleration to 254 to speedup acceleration and deceleration of
             # the motors. Note: this configuration is not in the official STS3215 Memory Table
             self.follower_arms[name].write("Maximum_Acceleration", 254)
-            self.follower_arms[name].write("Acceleration", 254)
+            self.follower_arms[name].write("Acceleration", 40)
 
     def teleop_step(
         self, record_data=False, dex_teleop=None
@@ -525,7 +526,7 @@ class ManipulatorRobot:
         if dex_teleop is not None:
             use_tongs = True
             tong_goal_pos = dex_teleop.get_goal_pose() # angles in radians
-            print(f"tong_goal_pos: {tong_goal_pos}")
+            print(f"tong: {tong_goal_pos}")
         
         if not use_tongs:
             leader_pos = {}
@@ -541,22 +542,37 @@ class ManipulatorRobot:
             before_fwrite_t = time.perf_counter()
             goal_pos = leader_pos[name] if not use_tongs else tong_goal_pos
             if goal_pos is None:
-                goal_pos = self.follower_arms[name].read("Present_Position")
-                # print only 4 digits after decimal
-                formatted_values = [f"{val:.4f}" for val in goal_pos]
-                print(f"present_pos: {formatted_values}")
-
+                goal_pos = self.follower_arms[name].read("Present_Position") if self.prev_pos is None else self.prev_pos
+            # elif use_tongs:
+            #     # offsets = [-180, 88, 90, 180, -180, 0]
+            #     offsets = [ 0] * 6
+            #     goal_pos_offseted=[]
+            #     for pos, offset in zip(goal_pos, offsets):
+            #         goal_pos_offseted.append(pos + offset)
+            #     goal_pos = goal_pos_offseted
+                
+            present_pos = self.follower_arms[name].read("Present_Position")
+            formatted_values = [f"{val:.4f}" for val in present_pos]
+            print(f"present_pos: {formatted_values}")
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
             if self.config.max_relative_target is not None:
                 present_pos = self.follower_arms[name].read("Present_Position")
                 present_pos = torch.from_numpy(present_pos)
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
+            # goal_pos = self.follower_arms[name].read("Present_Position")
+            # if tong_goal_pos is not None:
+            #     goal_pos[0] = tong_goal_pos[0]
+            #     goal_pos[1] = tong_goal_pos[1]
+            #     goal_pos[2] = tong_goal_pos[2]
+            #     goal_pos[3] = tong_goal_pos[3]
+            self.prev_pos = goal_pos
             goal_pos = np.array(goal_pos, dtype=np.int32)
+            formatted_values = [f"{val:.4f}" for val in goal_pos]
+            print(f"Goal position: {formatted_values}")
             # Used when record_data=True
             follower_goal_pos[name] = torch.from_numpy(goal_pos)
 
-            # goal_pos = goal_pos.numpy().astype(np.int32)
             self.follower_arms[name].write("Goal_Position", goal_pos)
             self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
 
