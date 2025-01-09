@@ -138,7 +138,7 @@
         <origin xyz="0.09891995753862716 -0.00013303607482287617 0.05455000000000001" rpy="3.189786117866041e-15 3.393805650568627e-16 -0.0007586542251351899" />
         <parent link="base_link" />
         <child link="shoulder_pan" />
-        <axis xyz="-4.930380657631324e-32 2.37251531204244e-15 1.0" />
+        <axis xyz="-4.930380657631324e-32 2.37251531204244e-15 -1.0" />
         <limit lower="-1.832596" upper="1.832596" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="shoulder_pan_shoulder_lift_joint" type="revolute">
@@ -146,27 +146,27 @@
         <parent link="shoulder_pan" />
         <child link="shoulder_lift" />
         <axis xyz="-0.9999997122218972 2.0674449874803995e-10 0.0007586541523615138" />
-        <limit lower="-0.785398" upper="1.658063" effort="1000000" velocity="1000000" />
+        <limit lower="0.0" upper="2.18166" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="shoulder_lift_elbow_joint" type="revolute">
         <origin xyz="0.037893485547286214 0.10949145999216181 -0.025196435301140276" rpy="3.1415926535895418 2.265006756586156e-14 -3.364010369466755e-10" />
         <parent link="shoulder_lift" />
         <child link="elbow" />
-        <axis xyz="1.0000002880403989 -1.245357002578147e-10 -3.456292375562768e-07" />
+        <axis xyz="-1.0000002880403989 1.245357002578147e-10 3.456292375562768e-07" />
         <limit lower="-1.53589" upper="1.780236" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="elbow_wrist_1_joint" type="revolute">
         <origin xyz="-0.03761630670794674 -0.0022157899953267803 0.12026017684096592" rpy="1.8787933722333255e-13 2.512616851854867e-14 -2.476481313343611e-10" />
         <parent link="elbow" />
         <child link="wrist_1" />
-        <axis xyz="-0.9999998631005341 -1.23112379231774e-10 0.0007583461697307804" />
+        <axis xyz="0.9999998631005341 1.23112379231774e-10 -0.0007583461697307804" />
         <limit lower="-1.797689" upper="1.797689" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="wrist_1_wrist_2_joint" type="revolute">
         <origin xyz="0.027165827341760113 -0.00019891999664992 0.06031796682590525" rpy="-3.049102007927164 1.5625820319968764 -1.4783560893203032" />
         <parent link="wrist_1" />
         <child link="wrist_2" />
-        <axis xyz="-0.9999449329225374 0.006662002215913354 -0.008132268196377131" />
+        <axis xyz="0.9999449329225374 -0.006662002215913354 0.008132268196377131" />
         <limit lower="-3.141593" upper="3.141593" effort="1000000" velocity="1000000" />
     </joint>
     <joint name="wrist_2_gripper_joint" type="revolute">
