@@ -510,25 +510,18 @@ class ManipulatorRobot:
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
         # TODO(carpit680): Remove this torque disabling part below.
-        if self.robot_type in ["koch", "koch_bimanual", "aloha"]:
-            from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
-        elif self.robot_type in ["so100", "moss"]:
-            from lerobot.common.robot_devices.motors.feetech import TorqueMode
 
-        # We assume that at connection time, arms are in a rest position, and torque can
-        # be safely disabled to run calibration and/or set robot preset configurations.
-        for name in self.follower_arms:
-            self.follower_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
-        for name in self.leader_arms:
-            self.leader_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
+        # from lerobot.common.robot_devices.motors.feetech import TorqueMode
+        # for name in self.follower_arms:
+        #     self.follower_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
 
         # Prepare to assign the position of the leader to the follower
         use_tongs = False
         if dex_teleop is not None:
             use_tongs = True
             tong_goal_pos = dex_teleop.get_goal_pose() # angles in radians
-            # if tong_goal_pos is not None:
-                # print(f"###################################################################################################################################tong: {tong_goal_pos}")
+            if tong_goal_pos is not None:
+                print(f"###################################################################################################################################tong: {tong_goal_pos}")
         
         if not use_tongs:
             leader_pos = {}
@@ -546,17 +539,8 @@ class ManipulatorRobot:
             if goal_pos is None:
                 goal_pos = self.follower_arms[name].read("Present_Position") if self.prev_pos is None else self.prev_pos
 
-            # TODO(carpit680): Move this offset part to a config if it is even required.
-            # elif use_tongs:
-            #     # offsets = [-180, 88, 90, 180, -180, 0]
-            #     offsets = [ 0] * 6
-            #     goal_pos_offseted=[]
-            #     for pos, offset in zip(goal_pos, offsets):
-            #         goal_pos_offseted.append(pos + offset)
-            #     goal_pos = goal_pos_offseted
-                
             present_pos = self.follower_arms[name].read("Present_Position")
-            formatted_values = [f"{val:.4f}" for val in present_pos]
+            formatted_values = [f"{val:.9f}" for val in present_pos]
             print(f"present_pos: {formatted_values}")
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
