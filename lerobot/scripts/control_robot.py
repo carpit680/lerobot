@@ -178,7 +178,8 @@ def teleoperate(
     urdf_path: str | None = None,
     cam_calib_path: str | None = None
 ):
-    use_tongs = False
+    # TODO@carpit680: make this configurable
+    use_tongs = True 
     if cam_calib_path is not None:
         use_tongs = True
 

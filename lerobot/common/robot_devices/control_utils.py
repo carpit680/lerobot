@@ -25,7 +25,8 @@ from lerobot.common.robot_devices.utils import busy_wait
 from lerobot.common.utils.utils import get_safe_torch_device, init_hydra_config, set_global_seed
 from lerobot.scripts.eval import get_pretrained_policy_path
 
-from teleop_tongs.teleop_tongs import DexTeleop
+#from teleop_tongs.teleop_tongs import DexTeleop
+from AS5600_Esp32_Multiple import AS5600Sensor
 
 def log_control_info(robot: Robot, dt_s, episode_index=None, frame_index=None, fps=None):
     log_items = []
@@ -252,7 +253,7 @@ def control_loop(
             cam_calib_path = "lerobot/configs/camera_calibration_results.yaml"
         if urdf_path is None:
             urdf_path = "lerobot/configs/giraffe.urdf"
-        dt = DexTeleop(urdf_path=urdf_path, cam_calib_path=cam_calib_path, degree=True)
+    dt = AS5600Sensor()
 
     # TODO(rcadene): Add option to record logs
     if not robot.is_connected:
@@ -276,7 +277,7 @@ def control_loop(
         start_loop_t = time.perf_counter()
 
         if teleoperate:
-            observation, action = robot.teleop_step(record_data=True, dex_teleop=dt)
+            observation, action = robot.teleop_step(record_data=True, teleop_class=dt)
         else:
             observation = robot.capture_observation()
 
@@ -290,13 +291,13 @@ def control_loop(
         if dataset is not None:
             frame = {**observation, **action}
             dataset.add_frame(frame)
-
-        if display_cameras and not is_headless():
-            image_keys = [key for key in observation if "image" in key]
-            for key in image_keys:
-                cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
-            cv2.waitKey(1)
-
+        # print("before cv2")
+        # if display_cameras and not is_headless():
+        #     image_keys = [key for key in observation if "image" in key]
+        #     for key in image_keys:
+        #         cv2.imshow(key, cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR))
+        #     cv2.waitKey(1)
+        # print("after cv2")
         if fps is not None:
             dt_s = time.perf_counter() - start_loop_t
             busy_wait(1 / fps - dt_s)

@@ -782,7 +782,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
             elif len(ft["shape"]) == 1 and ft["shape"][0] > 1:
                 episode_buffer[key] = np.stack(episode_buffer[key])
             else:
-                raise ValueError(key)
+                print(f'#######key: {key}')
+                raise ValueError()
 
         self._wait_image_writer()
         self._save_episode_table(episode_buffer, episode_index)

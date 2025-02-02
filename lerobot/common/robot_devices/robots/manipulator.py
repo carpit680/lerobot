@@ -21,6 +21,7 @@ from lerobot.common.robot_devices.robots.utils import get_arm_id
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 
 
+
 def ensure_safe_goal_position(
     goal_pos: torch.Tensor, present_pos: torch.Tensor, max_relative_target: float | list[float]
 ):
@@ -490,20 +491,20 @@ class ManipulatorRobot:
             # Mode=0 for Position Control
             self.follower_arms[name].write("Mode", 0)
             # Set P_Coefficient to lower value to avoid shakiness (Default is 32)
-            self.follower_arms[name].write("P_Coefficient", 4)
+            self.follower_arms[name].write("P_Coefficient", 12)
             # Set I_Coefficient and D_Coefficient to default value 0 and 32
             self.follower_arms[name].write("I_Coefficient", 0)
-            self.follower_arms[name].write("D_Coefficient", 16)
+            self.follower_arms[name].write("D_Coefficient", 20)
             # Close the write lock so that Maximum_Acceleration gets written to EPROM address,
             # which is mandatory for Maximum_Acceleration to take effect after rebooting.
             self.follower_arms[name].write("Lock", 0)
             # Set Maximum_Acceleration to 254 to speedup acceleration and deceleration of
             # the motors. Note: this configuration is not in the official STS3215 Memory Table
             self.follower_arms[name].write("Maximum_Acceleration", 254)
-            self.follower_arms[name].write("Acceleration", 40)
+            self.follower_arms[name].write("Acceleration", 100)
 
     def teleop_step(
-        self, record_data=False, dex_teleop=None
+        self, record_data=False, teleop_class=None
     ) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(
@@ -517,9 +518,10 @@ class ManipulatorRobot:
 
         # Prepare to assign the position of the leader to the follower
         use_tongs = False
-        if dex_teleop is not None:
+        if teleop_class is not None:
             use_tongs = True
-            tong_goal_pos = dex_teleop.get_goal_pose() # angles in radians
+            tong_goal_pos = teleop_class.read_sensor_data() # angles in radians
+            print(tong_goal_pos)
             if tong_goal_pos is not None:
                 print(f"###################################################################################################################################tong: {tong_goal_pos}")
         
@@ -541,7 +543,7 @@ class ManipulatorRobot:
 
             present_pos = self.follower_arms[name].read("Present_Position")
             formatted_values = [f"{val:.9f}" for val in present_pos]
-            print(f"present_pos: {formatted_values}")
+            print(f"follower_present_pos: {formatted_values}")
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
             if self.config.max_relative_target is not None:
@@ -550,20 +552,20 @@ class ManipulatorRobot:
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
 
             # TODO(carpit680): Remove this debug code once the tongs are ready.
-            # goal_pos = self.follower_arms[name].read("Present_Position")
-            # if tong_goal_pos is not None:
-            #     # goal_pos[0] = tong_goal_pos[0] # works
-            #     goal_pos[1] = tong_goal_pos[1]
-            #     # goal_pos[2] = tong_goal_pos[2] # works
-            #     # goal_pos[3] = tong_goal_pos[3] # works
-            #     # goal_pos[4] = tong_goal_pos[4] # works
-            #     # goal_pos[5] = tong_goal_pos[5] # works
+            goal_pos = self.follower_arms[name].read("Present_Position")
+            if tong_goal_pos is not None:
+                #goal_pos[0] = tong_goal_pos[0] # works
+                goal_pos[1] = tong_goal_pos[1]
+                goal_pos[2] = tong_goal_pos[2] # works
+                goal_pos[3] = tong_goal_pos[3] # works
+                goal_pos[4] = tong_goal_pos[4] # works
+                goal_pos[5] = tong_goal_pos[5] # works
 
 
             self.prev_pos = goal_pos
             goal_pos = np.array(goal_pos, dtype=np.int32)
             formatted_values = [f"{val:.4f}" for val in goal_pos]
-            # print(f"Goal position: {formatted_values}")
+            print(f"Goal position: {formatted_values}")
             # Used when record_data=True
             follower_goal_pos[name] = torch.from_numpy(goal_pos)
 
