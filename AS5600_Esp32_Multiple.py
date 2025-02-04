@@ -134,7 +134,7 @@ class AS5600Sensor:
         """
         self.serial_port = serial_port
         self.baud_rate = baud_rate
-        self.custom_zero = [2280, 845, 3500, 590, 2990, 1330]  # Moved inside the class
+        self.custom_zero = [2280, 845, 3450, 590, 2990, 1330]  # Moved inside the class
         self.esp32 = serial.Serial(serial_port, baud_rate, timeout=1)
         self.dummy_angles=[0.0]*6
         print("AS5600 Sensor class has been Initialized")
@@ -187,8 +187,6 @@ class AS5600Sensor:
                 angles = [self.convert_raw_to_degrees(raw_values[i], self.custom_zero[i]) for i in range(len(raw_values))]
                 Gripper_value = self.map_value(raw_values[5], 1325, 2808, 0, 25)
                 self.dummy_angles = [0.0,angles[1],-angles[2],-angles[3],-angles[4], Gripper_value ] #ang[2],[3] are negative
-
-                # self.dummy_angles = [0.0,0.0,0.0,0.0,0.0, Gripper_value] #ang[2],[3] are negative
 
                 return self.dummy_angles  # Return the list of angles
 

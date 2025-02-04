@@ -521,9 +521,9 @@ class ManipulatorRobot:
         if teleop_class is not None:
             use_tongs = True
             tong_goal_pos = teleop_class.read_sensor_data() # angles in radians
-            print(tong_goal_pos)
-            if tong_goal_pos is not None:
-                print(f"###################################################################################################################################tong: {tong_goal_pos}")
+            # print(tong_goal_pos)
+            # if tong_goal_pos is not None:
+            #     print(f"###################################################################################################################################tong: {tong_goal_pos}")
         
         if not use_tongs:
             leader_pos = {}
@@ -541,9 +541,9 @@ class ManipulatorRobot:
             if goal_pos is None:
                 goal_pos = self.follower_arms[name].read("Present_Position") if self.prev_pos is None else self.prev_pos
 
-            present_pos = self.follower_arms[name].read("Present_Position")
-            formatted_values = [f"{val:.9f}" for val in present_pos]
-            print(f"follower_present_pos: {formatted_values}")
+            # present_pos = self.follower_arms[name].read("Present_Position")
+            # formatted_values = [f"{val:.9f}" for val in present_pos]
+            # print(f"follower_present_pos: {formatted_values}")
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
             if self.config.max_relative_target is not None:
@@ -552,20 +552,20 @@ class ManipulatorRobot:
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
 
             # TODO(carpit680): Remove this debug code once the tongs are ready.
-            goal_pos = self.follower_arms[name].read("Present_Position")
-            if tong_goal_pos is not None:
-                #goal_pos[0] = tong_goal_pos[0] # works
-                goal_pos[1] = tong_goal_pos[1]
-                goal_pos[2] = tong_goal_pos[2] # works
-                goal_pos[3] = tong_goal_pos[3] # works
-                goal_pos[4] = tong_goal_pos[4] # works
-                goal_pos[5] = tong_goal_pos[5] # works
+            # goal_pos = self.follower_arms[name].read("Present_Position")
+            # if tong_goal_pos is not None:
+            #     #goal_pos[0] = tong_goal_pos[0] # works
+            #     goal_pos[1] = tong_goal_pos[1]
+            #     goal_pos[2] = tong_goal_pos[2] # works
+            #     goal_pos[3] = tong_goal_pos[3] # works
+            #     goal_pos[4] = tong_goal_pos[4] # works
+            #     goal_pos[5] = tong_goal_pos[5] # works
 
 
             self.prev_pos = goal_pos
             goal_pos = np.array(goal_pos, dtype=np.int32)
-            formatted_values = [f"{val:.4f}" for val in goal_pos]
-            print(f"Goal position: {formatted_values}")
+            # formatted_values = [f"{val:.4f}" for val in goal_pos]
+            # print(f"Goal position: {formatted_values}")
             # Used when record_data=True
             follower_goal_pos[name] = torch.from_numpy(goal_pos)
 
