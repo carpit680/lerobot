@@ -185,8 +185,8 @@ class AS5600Sensor:
 
                 # Convert each raw value to degrees using the reference values
                 angles = [self.convert_raw_to_degrees(raw_values[i], self.custom_zero[i]) for i in range(len(raw_values))]
-                Gripper_value = self.map_value(raw_values[5], 1325, 2808, 0, 10)
-                self.dummy_angles = [0.0,angles[1],-angles[2],-angles[3],angles[4], Gripper_value ] #ang[2],[3] are negative
+                Gripper_value = self.map_value(raw_values[5], 1325, 2808, 0, 25)
+                self.dummy_angles = [0.0,angles[1],-angles[2],-angles[3],-angles[4], Gripper_value ] #ang[2],[3] are negative
 
                 # self.dummy_angles = [0.0,0.0,0.0,0.0,0.0, Gripper_value] #ang[2],[3] are negative
 
