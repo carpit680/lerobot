@@ -72,6 +72,7 @@ def _find_cameras(
 
     camera_ids = []
     for camera_idx in possible_camera_ids:
+        print(camera_idx)
         camera = cv2.VideoCapture(camera_idx)
         is_open = camera.isOpened()
         camera.release()
@@ -410,7 +411,7 @@ class OpenCVCamera:
         while True:
             if self.color_image is not None:
                 return self.color_image
-
+            
             time.sleep(1 / self.fps)
             num_tries += 1
             if num_tries > self.fps * 2:

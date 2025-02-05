@@ -152,6 +152,7 @@ class ManipulatorRobot:
         self.cameras = make_cameras_from_configs(self.config.cameras)
         self.is_connected = False
         self.logs = {}
+        self.prev_pos = None
 
     def get_motor_names(self, arm: dict[str, MotorsBus]) -> list:
         return [f"{arm}_{motor}" for arm, bus in arm.items() for motor in bus.motors]
@@ -419,7 +420,7 @@ class ManipulatorRobot:
             self.follower_arms[name].write("P_Coefficient", 16)
             # Set I_Coefficient and D_Coefficient to default value 0 and 32
             self.follower_arms[name].write("I_Coefficient", 0)
-            self.follower_arms[name].write("D_Coefficient", 32)
+            self.follower_arms[name].write("D_Coefficient", 5)
             # Close the write lock so that Maximum_Acceleration gets written to EPROM address,
             # which is mandatory for Maximum_Acceleration to take effect after rebooting.
             self.follower_arms[name].write("Lock", 0)
@@ -430,25 +431,34 @@ class ManipulatorRobot:
 
     def teleop_step(
         self, record_data=False
+        , encoder_leader_class=None
     ) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(
                 "ManipulatorRobot is not connected. You need to run `robot.connect()`."
             )
-
-        # Prepare to assign the position of the leader to the follower
-        leader_pos = {}
-        for name in self.leader_arms:
-            before_lread_t = time.perf_counter()
-            leader_pos[name] = self.leader_arms[name].read("Present_Position")
-            leader_pos[name] = torch.from_numpy(leader_pos[name])
-            self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
+        
+        use_encoder_leader = False
+        if encoder_leader_class is not None:
+            use_encoder_leader = True
+            encoder_goal_pos = encoder_leader_class.read_sensor_data()
+        
+        if not use_encoder_leader:
+            # Prepare to assign the position of the leader to the follower
+            leader_pos = {}
+            for name in self.leader_arms:
+                before_lread_t = time.perf_counter()
+                leader_pos[name] = self.leader_arms[name].read("Present_Position")
+                leader_pos[name] = torch.from_numpy(leader_pos[name])
+                self.logs[f"read_leader_{name}_pos_dt_s"] = time.perf_counter() - before_lread_t
 
         # Send goal position to the follower
         follower_goal_pos = {}
         for name in self.follower_arms:
             before_fwrite_t = time.perf_counter()
-            goal_pos = leader_pos[name]
+            goal_pos = leader_pos[name] if not use_encoder_leader else encoder_goal_pos
+            if goal_pos is None:
+                goal_pos = self.follower_arms[name].read("Present_Position") if self.prev_pos is None else self.prev_pos
 
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
@@ -457,10 +467,14 @@ class ManipulatorRobot:
                 present_pos = torch.from_numpy(present_pos)
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
 
-            # Used when record_data=True
-            follower_goal_pos[name] = goal_pos
+            self.prev_pos = goal_pos
+            # goal_pos = np.asarray(goal_pos)
 
-            goal_pos = goal_pos.numpy().astype(np.int32)
+            # Used when record_data=True
+            follower_goal_pos[name] = torch.from_numpy(np.asarray(goal_pos))
+
+            # goal_pos = goal_pos.numpy().astype(np.int32)
+            goal_pos = np.asarray(goal_pos, dtype=np.int32)
             self.follower_arms[name].write("Goal_Position", goal_pos)
             self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
 

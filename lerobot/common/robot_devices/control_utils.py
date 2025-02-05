@@ -23,6 +23,7 @@ from lerobot.common.robot_devices.robots.utils import Robot
 from lerobot.common.robot_devices.utils import busy_wait
 from lerobot.common.utils.utils import get_safe_torch_device, has_method
 
+from AS5600_Esp32_Multiple import AS5600Sensor
 
 def log_control_info(robot: Robot, dt_s, episode_index=None, frame_index=None, fps=None):
     log_items = []
@@ -211,6 +212,7 @@ def control_loop(
     use_amp: bool | None = None,
     fps: int | None = None,
 ):
+    elc = AS5600Sensor()
     # TODO(rcadene): Add option to record logs
     if not robot.is_connected:
         robot.connect()
@@ -236,7 +238,7 @@ def control_loop(
         start_loop_t = time.perf_counter()
 
         if teleoperate:
-            observation, action = robot.teleop_step(record_data=True)
+            observation, action = robot.teleop_step(record_data=True, encoder_leader_class=elc)
         else:
             observation = robot.capture_observation()
 
