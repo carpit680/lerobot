@@ -18,7 +18,7 @@ class AS5600Sensor:
         """
         self.serial_port = serial_port
         self.baud_rate = baud_rate
-        self.custom_zero = [2280, 845, 3450, 590, 2990, 1330]  # Moved inside the class
+        self.custom_zero = [2330, 845, 3450, 590, 3030, 1330]  # Moved inside the class
         self.esp32 = serial.Serial(serial_port, baud_rate, timeout=1)
         self.dummy_angles=[0.0]*6
         print("AS5600 Sensor class has been Initialized")
