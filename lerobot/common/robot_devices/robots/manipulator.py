@@ -224,9 +224,9 @@ class ManipulatorRobot:
         for name in self.follower_arms:
             print(f"Connecting {name} follower arm.")
             self.follower_arms[name].connect()
-        for name in self.leader_arms:
-            print(f"Connecting {name} leader arm.")
-            self.leader_arms[name].connect()
+        # for name in self.leader_arms:
+        #     print(f"Connecting {name} leader arm.")
+        #     self.leader_arms[name].connect()
 
         if self.robot_type in ["koch", "koch_bimanual", "aloha"]:
             from lerobot.common.robot_devices.motors.dynamixel import TorqueMode
@@ -237,8 +237,8 @@ class ManipulatorRobot:
         # be safely disabled to run calibration and/or set robot preset configurations.
         for name in self.follower_arms:
             self.follower_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
-        for name in self.leader_arms:
-            self.leader_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
+        # for name in self.leader_arms:
+        #     self.leader_arms[name].write("Torque_Enable", TorqueMode.DISABLED.value)
 
         self.activate_calibration()
 
@@ -262,15 +262,15 @@ class ManipulatorRobot:
                 )
             # Set the leader arm in torque mode with the gripper motor set to an angle. This makes it possible
             # to squeeze the gripper and have it spring back to an open position on its own.
-            for name in self.leader_arms:
-                self.leader_arms[name].write("Torque_Enable", 1, "gripper")
-                self.leader_arms[name].write("Goal_Position", self.config.gripper_open_degree, "gripper")
+            # for name in self.leader_arms:
+                # self.leader_arms[name].write("Torque_Enable", 1, "gripper")
+                # self.leader_arms[name].write("Goal_Position", self.config.gripper_open_degree, "gripper")
 
         # Check both arms can be read
         for name in self.follower_arms:
             self.follower_arms[name].read("Present_Position")
-        for name in self.leader_arms:
-            self.leader_arms[name].read("Present_Position")
+        # for name in self.leader_arms:
+        #     self.leader_arms[name].read("Present_Position")
 
         # Connect the cameras
         for name in self.cameras:
@@ -317,9 +317,9 @@ class ManipulatorRobot:
         for name, arm in self.follower_arms.items():
             calibration = load_or_run_calibration_(name, arm, "follower")
             arm.set_calibration(calibration)
-        for name, arm in self.leader_arms.items():
-            calibration = load_or_run_calibration_(name, arm, "leader")
-            arm.set_calibration(calibration)
+        # for name, arm in self.leader_arms.items():
+        #     calibration = load_or_run_calibration_(name, arm, "leader")
+        #     arm.set_calibration(calibration)
 
     def set_koch_robot_preset(self):
         def set_operating_mode_(arm):
@@ -354,14 +354,14 @@ class ManipulatorRobot:
             self.follower_arms[name].write("Position_I_Gain", 0, "elbow_flex")
             self.follower_arms[name].write("Position_D_Gain", 600, "elbow_flex")
 
-        if self.config.gripper_open_degree is not None:
-            for name in self.leader_arms:
-                set_operating_mode_(self.leader_arms[name])
+        # if self.config.gripper_open_degree is not None:
+        #     for name in self.leader_arms:
+        #         set_operating_mode_(self.leader_arms[name])
 
-                # Enable torque on the gripper of the leader arms, and move it to 45 degrees,
-                # so that we can use it as a trigger to close the gripper of the follower arms.
-                self.leader_arms[name].write("Torque_Enable", 1, "gripper")
-                self.leader_arms[name].write("Goal_Position", self.config.gripper_open_degree, "gripper")
+        #         # Enable torque on the gripper of the leader arms, and move it to 45 degrees,
+        #         # so that we can use it as a trigger to close the gripper of the follower arms.
+        #         self.leader_arms[name].write("Torque_Enable", 1, "gripper")
+        #         self.leader_arms[name].write("Goal_Position", self.config.gripper_open_degree, "gripper")
 
     def set_aloha_robot_preset(self):
         def set_shadow_(arm):
@@ -379,8 +379,8 @@ class ManipulatorRobot:
         for name in self.follower_arms:
             set_shadow_(self.follower_arms[name])
 
-        for name in self.leader_arms:
-            set_shadow_(self.leader_arms[name])
+        # for name in self.leader_arms:
+        #     set_shadow_(self.leader_arms[name])
 
         for name in self.follower_arms:
             # Set a velocity limit of 131 as advised by Trossen Robotics
@@ -458,7 +458,9 @@ class ManipulatorRobot:
             before_fwrite_t = time.perf_counter()
             goal_pos = leader_pos[name] if not use_encoder_leader else encoder_goal_pos
             if goal_pos is None:
-                goal_pos = self.follower_arms[name].read("Present_Position") if self.prev_pos is None else self.prev_pos
+                goal_pos = self.follower_arms[name].read("Present_Position")
+
+            goal_pos = torch.from_numpy(np.asarray(goal_pos)).to(torch.float32)
 
             # Cap goal position when too far away from present position.
             # Slower fps expected due to reading from the follower.
@@ -468,13 +470,12 @@ class ManipulatorRobot:
                 goal_pos = ensure_safe_goal_position(goal_pos, present_pos, self.config.max_relative_target)
 
             self.prev_pos = goal_pos
-            # goal_pos = np.asarray(goal_pos)
-
+            
             # Used when record_data=True
-            follower_goal_pos[name] = torch.from_numpy(np.asarray(goal_pos))
+            goal_pos = goal_pos.numpy()
+            follower_goal_pos[name] = torch.from_numpy(goal_pos) #torch.from_numpy(np.asarray(goal_pos))
 
-            # goal_pos = goal_pos.numpy().astype(np.int32)
-            goal_pos = np.asarray(goal_pos, dtype=np.int32)
+            # goal_pos = np.asarray(goal_pos, dtype=np.int32)
             self.follower_arms[name].write("Goal_Position", goal_pos)
             self.logs[f"write_follower_{name}_goal_pos_dt_s"] = time.perf_counter() - before_fwrite_t
 
@@ -614,8 +615,8 @@ class ManipulatorRobot:
         for name in self.follower_arms:
             self.follower_arms[name].disconnect()
 
-        for name in self.leader_arms:
-            self.leader_arms[name].disconnect()
+        # for name in self.leader_arms:
+        #     self.leader_arms[name].disconnect()
 
         for name in self.cameras:
             self.cameras[name].disconnect()

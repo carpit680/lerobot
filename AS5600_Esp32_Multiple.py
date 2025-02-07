@@ -74,11 +74,11 @@ class AS5600Sensor:
                 return self.dummy_angles  # Return the list of angles
 
         except serial.SerialException as e:
-            print(f"Error: {e}")
-            return self.dummy_angles
+            print(f"Error from AS5600: {e}")
+            return None
         except ValueError:
-            print("Invalid data received.")
-            return self.dummy_angles
+            print("Error from AS5600: Invalid data received.")
+            return None
 
 # Example usage
 if __name__ == "__main__":
