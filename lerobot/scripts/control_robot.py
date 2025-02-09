@@ -369,12 +369,11 @@ def record(
     )
 
 
-    dataset.clear_episode_buffer()
+    # dataset.clear_episode_buffer()
 
     log_say("Stop task", cfg.play_sounds, blocking=True)
     stop_recording(robot, listener, cfg.display_cameras)
 
-    log_say("Exiting", cfg.play_sounds)
     return dataset
 
 
