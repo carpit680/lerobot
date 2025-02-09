@@ -206,6 +206,111 @@ def teleoperate(robot: Robot, cfg: TeleoperateControlConfig):
     )
 
 
+# @safe_disconnect
+# def record(
+#     robot: Robot,
+#     cfg: RecordControlConfig,
+# ) -> LeRobotDataset:
+#     # TODO(rcadene): Add option to record logs
+#     if cfg.resume:
+#         dataset = LeRobotDataset(
+#             cfg.repo_id,
+#             root=cfg.root,
+#             local_files_only=cfg.local_files_only,
+#         )
+#         if len(robot.cameras) > 0:
+#             dataset.start_image_writer(
+#                 num_processes=cfg.num_image_writer_processes,
+#                 num_threads=cfg.num_image_writer_threads_per_camera * len(robot.cameras),
+#             )
+#         sanity_check_dataset_robot_compatibility(dataset, robot, cfg.fps, cfg.video)
+#     else:
+#         # Create empty dataset or load existing saved episodes
+#         sanity_check_dataset_name(cfg.repo_id, cfg.policy)
+#         dataset = LeRobotDataset.create(
+#             cfg.repo_id,
+#             cfg.fps,
+#             root=cfg.root,
+#             robot=robot,
+#             use_videos=cfg.video,
+#             image_writer_processes=cfg.num_image_writer_processes,
+#             image_writer_threads=cfg.num_image_writer_threads_per_camera * len(robot.cameras),
+#         )
+
+#     # Load pretrained policy
+#     policy = None if cfg.policy is None else make_policy(cfg.policy, cfg.device, ds_meta=dataset.meta)
+
+#     if not robot.is_connected:
+#         robot.connect()
+
+#     listener, events = init_keyboard_listener()
+
+#     # Execute a few seconds without recording to:
+#     # 1. teleoperate the robot to move it in starting position if no policy provided,
+#     # 2. give times to the robot devices to connect and start synchronizing,
+#     # 3. place the cameras windows on screen
+#     enable_teleoperation = policy is None
+#     log_say("Warmup record", cfg.play_sounds)
+#     warmup_record(robot, events, enable_teleoperation, cfg.warmup_time_s, cfg.display_cameras, cfg.fps)
+
+#     if has_method(robot, "teleop_safety_stop"):
+#         robot.teleop_safety_stop()
+
+#     recorded_episodes = 0
+#     while True:
+#         if recorded_episodes >= cfg.num_episodes:
+#             break
+
+#         log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
+#         record_episode(
+#             dataset=dataset,
+#             robot=robot,
+#             events=events,
+#             episode_time_s=cfg.episode_time_s,
+#             display_cameras=cfg.display_cameras,
+#             policy=policy,
+#             device=cfg.device,
+#             use_amp=cfg.use_amp,
+#             fps=cfg.fps,
+#         )
+
+#         # Execute a few seconds without recording to give time to manually reset the environment
+#         # Current code logic doesn't allow to teleoperate during this time.
+#         # TODO(rcadene): add an option to enable teleoperation during reset
+#         # Skip reset for the last episode to be recorded
+#         if not events["stop_recording"] and (
+#             (recorded_episodes < cfg.num_episodes - 1) or events["rerecord_episode"]
+#         ):
+#             log_say("Reset the environment", cfg.play_sounds)
+#             reset_environment(robot, events, cfg.reset_time_s)
+
+#         if events["rerecord_episode"]:
+#             log_say("Re-record episode", cfg.play_sounds)
+#             events["rerecord_episode"] = False
+#             events["exit_early"] = False
+#             dataset.clear_episode_buffer()
+#             continue
+
+#         dataset.save_episode(cfg.single_task)
+#         recorded_episodes += 1
+
+#         if events["stop_recording"]:
+#             break
+
+#     log_say("Stop recording", cfg.play_sounds, blocking=True)
+#     stop_recording(robot, listener, cfg.display_cameras)
+
+#     if cfg.run_compute_stats:
+#         logging.info("Computing dataset statistics")
+
+#     dataset.consolidate(cfg.run_compute_stats)
+
+#     if cfg.push_to_hub:
+#         dataset.push_to_hub(tags=cfg.tags, private=cfg.private)
+
+#     log_say("Exiting", cfg.play_sounds)
+#     return dataset
+
 @safe_disconnect
 def record(
     robot: Robot,
@@ -245,68 +350,29 @@ def record(
 
     listener, events = init_keyboard_listener()
 
-    # Execute a few seconds without recording to:
-    # 1. teleoperate the robot to move it in starting position if no policy provided,
-    # 2. give times to the robot devices to connect and start synchronizing,
-    # 3. place the cameras windows on screen
     enable_teleoperation = policy is None
-    log_say("Warmup record", cfg.play_sounds)
     warmup_record(robot, events, enable_teleoperation, cfg.warmup_time_s, cfg.display_cameras, cfg.fps)
 
     if has_method(robot, "teleop_safety_stop"):
         robot.teleop_safety_stop()
 
-    recorded_episodes = 0
-    while True:
-        if recorded_episodes >= cfg.num_episodes:
-            break
+    record_episode(
+        dataset=dataset,
+        robot=robot,
+        events=events,
+        episode_time_s=cfg.episode_time_s,
+        display_cameras=cfg.display_cameras,
+        policy=policy,
+        device=cfg.device,
+        use_amp=cfg.use_amp,
+        fps=cfg.fps,
+    )
 
-        log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
-        record_episode(
-            dataset=dataset,
-            robot=robot,
-            events=events,
-            episode_time_s=cfg.episode_time_s,
-            display_cameras=cfg.display_cameras,
-            policy=policy,
-            device=cfg.device,
-            use_amp=cfg.use_amp,
-            fps=cfg.fps,
-        )
 
-        # Execute a few seconds without recording to give time to manually reset the environment
-        # Current code logic doesn't allow to teleoperate during this time.
-        # TODO(rcadene): add an option to enable teleoperation during reset
-        # Skip reset for the last episode to be recorded
-        if not events["stop_recording"] and (
-            (recorded_episodes < cfg.num_episodes - 1) or events["rerecord_episode"]
-        ):
-            log_say("Reset the environment", cfg.play_sounds)
-            reset_environment(robot, events, cfg.reset_time_s)
+    dataset.clear_episode_buffer()
 
-        if events["rerecord_episode"]:
-            log_say("Re-record episode", cfg.play_sounds)
-            events["rerecord_episode"] = False
-            events["exit_early"] = False
-            dataset.clear_episode_buffer()
-            continue
-
-        dataset.save_episode(cfg.single_task)
-        recorded_episodes += 1
-
-        if events["stop_recording"]:
-            break
-
-    log_say("Stop recording", cfg.play_sounds, blocking=True)
+    log_say("Stop task", cfg.play_sounds, blocking=True)
     stop_recording(robot, listener, cfg.display_cameras)
-
-    if cfg.run_compute_stats:
-        logging.info("Computing dataset statistics")
-
-    dataset.consolidate(cfg.run_compute_stats)
-
-    if cfg.push_to_hub:
-        dataset.push_to_hub(tags=cfg.tags, private=cfg.private)
 
     log_say("Exiting", cfg.play_sounds)
     return dataset

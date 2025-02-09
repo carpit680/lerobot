@@ -1,71 +1,31 @@
-import time
-import torch
-from lerobot.common.robot_devices.robots.utils import make_robot_from_config
-from lerobot.common.policies.factory import make_policy
-from lerobot.common.robot_devices.control_utils import predict_action
+#!/usr/bin/env python3
+import subprocess
 
 def main():
-    # ----- Define robot configuration -----
-    # Adjust the parameters as needed for your robot.
-    robot_config = {
-        "robot_type": "so100",  # example robot type; change if needed
-        # Add any other robot-specific configuration parameters here
-    }
-    # Instantiate the robot
-    robot = make_robot_from_config(robot_config)
+    # Build the command as a single string. Note that shell expansion (e.g. ${HF_USER})
+    # requires shell=True and that the HF_USER environment variable is set.
+    command = (
+        'rm -rf /Users/arpit/.cache/huggingface/lerobot/carpit680/eval_giraffe_sock_demo_1_5 && '
+        'python lerobot/scripts/control_robot.py '
+        '--robot.type=so100 '
+        '--control.type=record '
+        '--control.fps=30 '
+        '--control.single_task="Grasp a sock off the floor." '
+        '--control.repo_id=carpit680/eval_giraffe_sock_demo_1_5 '
+        '--control.tags=\'["giraffe","demo"]\' '
+        '--control.warmup_time_s=1 '
+        '--control.episode_time_s=20 '
+        '--control.reset_time_s=1 '
+        '--control.num_episodes=1 '
+        '--control.push_to_hub=false '
+        '--control.policy.path=/Users/arpit/Projects/lerobot/outputs/train/act_giraffe_task1/checkpoints/last/pretrained_model'
+    )
     
-    # Connect to the robot (this will initialize sensors, cameras, etc.)
-    print("Connecting to robot...")
-    robot.connect()
+    print("Executing command:")
+    print(command)
     
-    # ----- Define policy configuration -----
-    # Provide the path to your pretrained ACT policy checkpoint.
-    policy_config = {
-        "path": "path/to/pretrained_model",  # update with your actual checkpoint directory
-        "type": "act",  # indicates that this is an ACT policy
-        # Include any additional policy parameters if required
-    }
-    
-    # Set the device for inference
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Load the pretrained policy using LeRobot’s factory method.
-    print("Loading policy...")
-    policy = make_policy(policy_config, device=device)
-    policy.eval()  # ensure the policy is in evaluation mode
-    
-    # (Optional) Allow a short pause for sensors/cameras to stabilize.
-    time.sleep(2)
-    
-    # ----- Execute the policy for 60 seconds -----
-    execution_time = 60  # seconds
-    fps = 30             # control loop frequency (adjust as needed)
-    dt = 1.0 / fps
-    print("Starting policy execution for 60 seconds...")
-    
-    start_time = time.time()
-    while time.time() - start_time < execution_time:
-        loop_start = time.time()
-        
-        # Capture the current observation from the robot.
-        # (The robot is expected to have a method 'capture_observation' that returns a dict.)
-        observation = robot.capture_observation()
-        
-        # Compute the next action.
-        # The 'predict_action' utility converts image observations (if any) to the
-        # required tensor format, adds a batch dimension, and then calls policy.select_action.
-        action = predict_action(observation, policy, device, use_amp=False)
-        
-        # Send the action to the robot.
-        robot.send_action(action)
-        
-        # Wait to maintain the desired control loop frequency.
-        elapsed = time.time() - loop_start
-        if elapsed < dt:
-            time.sleep(dt - elapsed)
-    
-    print("Policy execution complete. Disconnecting robot...")
-    robot.disconnect()
+    # Run the command in the shell.
+    subprocess.run(command, shell=True, check=True)
 
 if __name__ == "__main__":
     main()
