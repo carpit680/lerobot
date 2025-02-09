@@ -1,7 +1,7 @@
 import serial
 
 class AS5600Sensor:
-    def __init__(self, serial_port='/dev/ttyUSB0', baud_rate=115200):
+    def __init__(self, serial_port='/dev/tty.usbserial-0001', baud_rate=115200):
         """
         Initialize the AS5600 sensor class.
 
@@ -78,6 +78,12 @@ class AS5600Sensor:
             return None
         except ValueError:
             print("Error from AS5600: Invalid data received.")
+            return None
+        except IndexError:
+            print("Error from AS5600: Index out of range.")
+            return None
+        except Exception as e:
+            print(f"Error from AS5600: {e}")
             return None
 
 # Example usage
