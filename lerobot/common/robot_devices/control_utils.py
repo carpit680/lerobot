@@ -212,7 +212,10 @@ def control_loop(
     use_amp: bool | None = None,
     fps: int | None = None,
 ):
-    elc = AS5600Sensor()
+    try:
+        elc = AS5600Sensor()
+    except Exception as e:
+        elc = None
     # TODO(rcadene): Add option to record logs
     if not robot.is_connected:
         robot.connect()
@@ -264,7 +267,7 @@ def control_loop(
             busy_wait(1 / fps - dt_s)
 
         dt_s = time.perf_counter() - start_loop_t
-        log_control_info(robot, dt_s, fps=fps)
+        # log_control_info(robot, dt_s, fps=fps)
 
         timestamp = time.perf_counter() - start_episode_t
         if events["exit_early"]:

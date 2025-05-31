@@ -473,7 +473,7 @@ class ManipulatorRobot:
             
             # Used when record_data=True
             goal_pos = goal_pos.numpy()
-            follower_goal_pos[name] = torch.from_numpy(goal_pos) #torch.from_numpy(np.asarray(goal_pos))
+            follower_goal_pos[name] = torch.from_numpy(goal_pos) 
 
             # goal_pos = np.asarray(goal_pos, dtype=np.int32)
             self.follower_arms[name].write("Goal_Position", goal_pos)
