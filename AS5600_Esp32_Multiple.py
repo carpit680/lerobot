@@ -1,77 +1,93 @@
+import math
 import serial
+import collections
+import numpy as np  # For median computation
 
 class AS5600Sensor:
-    def __init__(self, serial_port='/dev/tty.usbserial-0001', baud_rate=115200):
+    def __init__(self, serial_port='/dev/cu.usbserial-120', baud_rate=115200):
         """
         Initialize the AS5600 sensor class.
-
-        Args:
-            serial_port (str):             goal_pos = self.follower_arms[name].read("Present_Position")
-            if tong_goal_pos is not None:
-                # goal_pos[0] = tong_goal_pos[0] # works
-                goal_pos[1] = tong_goal_pos[1]
-                # goal_pos[2] = tong_goal_pos[2] # works
-                # goal_pos[3] = tong_goal_pos[3] # works
-                # goal_pos[4] = tong_goal_pos[4] # works
-                # goal_pos[5] = tong_goal_pos[5] # worksSerial port for communication (default: '/dev/ttyUSB0').
-            baud_rate (int): Baud rate for serial communication (default: 115200).
         """
         self.serial_port = serial_port
         self.baud_rate = baud_rate
-        self.custom_zero = [2330, 845, 3450, 590, 3030, 1330]  # Moved inside the class
-        self.esp32 = serial.Serial(serial_port, baud_rate, timeout=1)
-        self.dummy_angles=[0.0]*6
+        self.custom_zero = [2481, 12, 302, 4090, 3094, 2307]
+        self.esp = serial.Serial(serial_port, baud_rate, timeout=1)
+        self.dummy_angles = [0.0] * 6
+
+        # Moving median filter deques (one for each channel)
+        self.window_size = 10
+        self.angle_windows = [collections.deque(maxlen=self.window_size) for _ in range(6)]
+
         print("AS5600 Sensor class has been Initialized")
 
-    def convert_raw_to_degrees(self, raw_value, reference):
-        """
-        Convert raw AS5600 value (0-4095) to degrees with custom zero.
-
-        Args:
-            raw_value (int): Raw value from the AS5600 sensor.
-            reference (int): Custom zero reference value.
-
-        Returns:
-            float: Angle in degrees, normalized to -180° to 180°.
-        """
-        adjusted_value = (raw_value - reference + 4096) % 4096
-        degrees = (adjusted_value / 4096.0) * 360.0  # Convert to degrees (0-360)
-        degrees = (degrees + 180) % 360 - 180  # Normalize to -180 to 180
+    def convert_raw_to_degrees(self, raw_values, references):
+        
+        degrees = [0.0] * len(raw_values)
+        for index, value in enumerate(raw_values):
+            adjusted_value = (value - references[index] + 4096) % 4096
+            degrees_value = (adjusted_value / 4096.0) * 360.0
+            degrees[index] = (degrees_value + 180) % 360 - 180
         return degrees
-    
 
     def map_value(self, x, in_min, in_max, out_min, out_max):
-        """
-        Linearly map a value from one range to another.
-
-        Args:
-            x (float): Input value.
-            in_min (float): Minimum value of input range.
-            in_max (float): Maximum value of input range.
-            out_min (float): Minimum value of output range.
-            out_max (float): Maximum value of output range.
-
-        Returns:
-            float: Mapped value.
-        """
         return max(out_min, min(out_max, (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min))
 
+    def apply_median_filter(self, angle_values):
+        """
+        Update the median filter window and return the filtered values.
+        Uses angle unwrapping to avoid wrap-around artifacts.
+        """
+        filtered_angles = []
 
+        for i, angle in enumerate(angle_values):
+            # Append new angle
+            self.angle_windows[i].append(angle)
+
+            # Convert window to numpy array for easy manipulation
+            angles_window = np.array(self.angle_windows[i])
+
+            # Unwrap angles to prevent wrap-around artifacts
+            angles_unwrapped = np.unwrap(np.deg2rad(angles_window))  # convert to radians and unwrap
+            median_unwrapped = np.median(angles_unwrapped)
+
+            # Convert back to degrees
+            median_deg = math.degrees(median_unwrapped)
+
+            # Wrap back to -180 to 180
+            median_deg = (median_deg + 180) % 360 - 180
+
+            filtered_angles.append(median_deg)
+
+        return filtered_angles
+    def clip_angle(self, angle, min_angle, max_angle):
+        if angle >= max_angle:
+            return max_angle
+        elif angle <= min_angle:
+            return  min_angle
+        return angle
+        
+        
     def read_sensor_data(self):
-        """
-        Read raw sensor data from the ESP32 and return the angles in degrees.
-        """
         try:
-            data = self.esp32.readline().decode('utf-8').strip()  # Read the data from the ESP32
-            if data:  # If there's data, process it
-                raw_values = list(map(int, data.split(",")))  # Split and convert to integers
+            data = self.esp.readline().decode('utf-8').strip()
+            if data:
+                raw_values = list(map(int, data.split(",")))
+                angles = self.convert_raw_to_degrees(raw_values, self.custom_zero)
 
-                # Convert each raw value to degrees using the reference values
-                angles = [self.convert_raw_to_degrees(raw_values[i], self.custom_zero[i]) for i in range(len(raw_values))]
-                Gripper_value = self.map_value(raw_values[5], 1325, 2808, 0, 25)
-                self.dummy_angles = [angles[0],angles[1],-angles[2],-angles[3],-angles[4], Gripper_value ] #ang[2],[3],[4] are negative
-
-                return self.dummy_angles  # Return the list of angles
+                # Apply median filter
+                median_filtered_angles = self.apply_median_filter(angles)
+                
+                gripper_value = self.map_value(abs(median_filtered_angles[5]), 0.0, 114.0, 0, 20)
+                self.dummy_angles = [
+                    self.clip_angle(median_filtered_angles[0], -90.0, 90.0),
+                    self.clip_angle(abs(median_filtered_angles[1]), 0.0, 170.0),
+                    self.clip_angle(abs(median_filtered_angles[2]), 0.0, 165.0),
+                    self.clip_angle(median_filtered_angles[3], -90.0, 90.0), #rotate
+                    -median_filtered_angles[4],
+                    gripper_value
+                ]
+                print([round(angle, 2) for angle in self.dummy_angles])
+                return self.dummy_angles
 
         except serial.SerialException as e:
             print(f"Error from AS5600: {e}")
@@ -88,16 +104,14 @@ class AS5600Sensor:
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize the AS5600 sensor class
-    sensor = AS5600Sensor(serial_port='/dev/ttyUSB0', baud_rate=115200)
+    sensor = AS5600Sensor(serial_port='/dev/cu.usbserial-120', baud_rate=115200)
 
     try:
         while True:
             angles = sensor.read_sensor_data()
             if angles:
-                print(angles)  # You can print the angles or process them as needed
-
+                print([round(angle, 2) for angle in angles])
+                pass
     except KeyboardInterrupt:
         print("\nExiting gracefully...")
-        sensor.esp32.close()  # Close serial port before exiting
-
+        sensor.esp.close()
