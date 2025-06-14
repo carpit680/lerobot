@@ -9,6 +9,7 @@ from albumentations import Compose, RandomBrightnessContrast
 import torch
 from torchvision import transforms
 from torchvision.models.segmentation import deeplabv3_resnet50
+from huggingface_hub import HfApi
 
 # --- Helper functions for preview ---
 def load_seg_model(device):
@@ -51,10 +52,13 @@ st.title("Lerobot Dataset Augmentation GUI")
 # Sidebar for CLI arguments
 st.sidebar.header("Dataset Parameters")
 repo = st.sidebar.text_input("HF Dataset Repo (user/ds)", value="user/dataset")
-token = st.sidebar.text_input("HF Access Token", type="password")
+# Use HF_TOKEN env var if available
+default_token = os.getenv("HF_TOKEN", "")
+token = st.sidebar.text_input("HF Access Token", type="password", value=default_token)
 cache_dir = st.sidebar.text_input("Cache Directory", value=str(Path.home()/".cache"/"lerobot"))
 max_eps = st.sidebar.number_input("Max Episodes to Process", min_value=0, step=1, value=0)
 out_repo = st.sidebar.text_input("Output HF Repo (optional)", value="")
+delete_existing = st.sidebar.checkbox("Delete existing HF dataset before push")
 
 st.sidebar.header("Augmentation Options")
 light = st.sidebar.checkbox("Brightness/Contrast Jitter")
@@ -75,7 +79,6 @@ if uploaded:
     np_img = np.frombuffer(uploaded.read(), np.uint8)
     img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
     orig = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    ops = []
     if light:
         pipeline = Compose([RandomBrightnessContrast(p=1)])
         img = pipeline(image=img)['image']
@@ -98,6 +101,16 @@ if uploaded:
 # Full run section
 st.header("Run Full Dataset Augmentation")
 if st.button("Run Augmentation"):
+    # determine target repo name
+    target_repo = out_repo if out_repo.strip() else f"{repo}-augmented"
+    api = HfApi()
+    if delete_existing:
+        try:
+            api.delete_repo(repo_id=target_repo, repo_type='dataset', token=token)
+            st.success(f"Deleted existing dataset: {target_repo}")
+        except Exception as e:
+            st.error(f"Failed to delete existing dataset: {e}")
+    # build command
     cmd = [sys.executable, "augment.py", "--repo", repo, "--token", token]
     if cache_dir:
         cmd += ["--cache-dir", cache_dir]
@@ -111,12 +124,8 @@ if st.button("Run Augmentation"):
         cmd.append("--seg-color")
     if env_swap_opt and bg_dir:
         cmd += ["--env-swap", "--bg-dir", bg_dir]
-    
-    st.text("Running: {}".format(" ".join(cmd)))
+
     with st.spinner("Augmenting dataset, this may take a while..."):
         result = subprocess.run(cmd, capture_output=True, text=True)
     st.subheader("Logs")
     st.text_area("Output", result.stdout + "\n" + result.stderr, height=400)
-
-st.markdown("---")
-st.markdown("**Usage:** Place this file alongside your `augment.py` script. Then run `streamlit run streamlit_app.py`.")
