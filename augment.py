@@ -1,189 +1,143 @@
-#!/usr/bin/env python3
-import argparse
-import os
-import random
-import shutil
+import streamlit as st
 import subprocess
+import sys
 from pathlib import Path
-
+import os
 import cv2
 import numpy as np
-import torch
 from albumentations import Compose, RandomBrightnessContrast
-from datasets import load_dataset
+import torch
 from huggingface_hub import HfApi
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
-from torchvision import transforms
-from torchvision.models.segmentation import deeplabv3_resnet50
-from tqdm import tqdm
 
+# SAM2 Automatic Mask Generator imports
+from sam2.build_sam import build_sam2
+from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Lerobot dataset augmentation: lighting, segmentation/color swap, environment swap, and more"
+# --- Helper functions for preview using SAM2 AutomaticMaskGenerator ---
+def load_mask_generator(device: torch.device, config_path: str, checkpoint_path: str):
+    # build model
+    sam = build_sam2(
+        config_path,
+        checkpoint_path,
+        device=device,
+        apply_postprocessing=False
     )
-    parser.add_argument("--repo",           required=True, help="HF dataset repo (e.g. user/ds)")
-    parser.add_argument("--token",          required=True, help="HF access token")
-    parser.add_argument(
-        "--cache-dir",
-        default=str(Path.home() / ".cache" / "lerobot"),
-        help="Base cache dir; per-repo subfolder will be created",
-    )
-    parser.add_argument("--light",          action="store_true", help="Apply brightness/contrast jitter to frames")
-    parser.add_argument("--seg-color",      action="store_true", help="Segment & random-color robot in frames")
-    parser.add_argument("--env-swap",       action="store_true", help="Segment & swap backgrounds")
-    parser.add_argument("--bg-dir",         help="Directory of background images (for --env-swap)")
-    parser.add_argument(
-        "--max-episodes",
-        type=int,
-        default=None,
-        help="Maximum number of episodes to process (default: all available)",
-    )
-    parser.add_argument(
-        "--out-repo",
-        help="Output HF repo (defaults to <repo>-augmented)"
-    )
-    return parser.parse_args()
+    return SAM2AutomaticMaskGenerator(sam)
 
 
-def load_seg_model(device):
-    model = deeplabv3_resnet50(pretrained=True).eval().to(device)
-    preprocess = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize(520),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225]),
-    ])
-    return model, preprocess
-
-
-def get_mask(model, preprocess, image, device):
-    inp = preprocess(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        out = model(inp)["out"][0]
-    return out.argmax(0).cpu().numpy().astype(np.uint8)
+def get_combined_mask(mask_generator, image):
+    # Generates multiple masks and combine into one
+    sam_masks = mask_generator.generate(image)
+    # Each entry has 'segmentation' boolean mask. Combine all
+    combined = np.zeros(image.shape[:2], dtype=np.uint8)
+    for m in sam_masks:
+        combined = np.logical_or(combined, m['segmentation'])
+    return combined.astype(np.uint8)
 
 
 def color_replace(image, mask):
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    h, s, v = random.randint(0,179), random.randint(50,255), random.randint(50,255)
+    h, s, v = np.random.randint(0,180), np.random.randint(50,256), np.random.randint(50,256)
     hsv[mask != 0] = (h, s, v)
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
 
-def env_swap(image, mask, bg_dir):
-    bg_file = random.choice(os.listdir(bg_dir))
-    bg = cv2.imread(str(Path(bg_dir) / bg_file))
-    bg = cv2.resize(bg, (image.shape[1], image.shape[0]))
+def env_swap(image, mask, bg_image):
+    bg = cv2.resize(bg_image, (image.shape[1], image.shape[0]))
     fg = image.copy()
     fg[mask == 0] = 0
     inv = (mask == 0)
     bg[~inv] = 0
     return fg + bg
 
+# --- Streamlit UI ---
+st.set_page_config(page_title="Lerobot Dataset Augmentation", layout="wide")
+st.title("Lerobot Dataset Augmentation GUI")
 
-def encode_with_ffmpeg(img_dir: Path, output_path: Path, fps: int):
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        "ffmpeg", "-f", "image2", "-r", str(fps),
-        "-i", str(img_dir / "frame_%06d.png"),
-        "-vcodec", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-crf", "23",
-        "-loglevel", "error",
-        "-y", str(output_path)
-    ]
-    subprocess.run(cmd, check=True)
+# Sidebar for CLI arguments
+st.sidebar.header("Dataset Parameters")
+repo = st.sidebar.text_input("HF Dataset Repo (user/ds)", value="carpit680/giraffe_clean_desk")
+default_token = os.getenv("HF_TOKEN", "")
+token = st.sidebar.text_input("HF Access Token", type="password", value=default_token)
+cache_dir = st.sidebar.text_input("Cache Directory", value=str(Path.home()/".cache"/"lerobot"))
+max_eps = st.sidebar.number_input("Max Episodes to Process", min_value=1, step=1, value=1)
+out_repo = st.sidebar.text_input("Output HF Repo (optional)", value="")
+delete_existing = st.sidebar.checkbox("Delete existing HF dataset before push")
 
+# SAM2 config inputs
+# st.sidebar.header("SAM2 Mask Generator Config")
+# model_cfg = st.sidebar.text_input("SAM2 config YAML path", value="sam2.1/sam2.1_tiny.yaml")
+# checkpoint_path = st.sidebar.text_input("SAM2 checkpoint path", value="/mnt/data/Projects/lerobot/sam2.1_hiera_tiny.pt")
 
-def main():
-    args = parse_args()
-    os.environ["HF_HUB_TOKEN"] = args.token
+st.sidebar.header("Augmentation Options")
+light = st.sidebar.checkbox("Brightness/Contrast Jitter")
+seg_color = st.sidebar.checkbox("Segment & Random-Color Robot")
+env_swap_opt = st.sidebar.checkbox("Segment & Swap Background")
+bg_dir = None
+if env_swap_opt:
+    bg_dir = st.sidebar.text_input("Background Images Directory Path")
 
-    cache_base = Path(args.cache_dir)
-    repo_cache = cache_base / args.repo
-    repo_cache.mkdir(parents=True, exist_ok=True)
+# Preview section
+st.header("Preview Augmentation on Single Image")
+uploaded = st.file_uploader("Upload an image for preview", type=["png", "jpg", "jpeg"])
+bg_uploaded = None
+if env_swap_opt:
+    bg_uploaded = st.file_uploader("Upload a background image", type=["png", "jpg", "jpeg"])
 
-    print("🔄 Downloading metadata and videos...")
-    ds_meta = LeRobotDatasetMetadata(repo_id=args.repo, root=repo_cache, local_files_only=False)
-    LeRobotDataset(repo_id=args.repo, root=repo_cache, local_files_only=False, download_videos=True)
+if uploaded:
+    np_img = np.frombuffer(uploaded.read(), np.uint8)
+    img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+    orig = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # Lighting
+    if light:
+        pipeline = Compose([RandomBrightnessContrast(p=1)])
+        img = pipeline(image=img)['image']
+    # Segmentation with SAM2 AutomaticMaskGenerator
+    if seg_color or env_swap_opt:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        mask_gen = load_mask_generator(device, "configs/sam2.1/sam2.1_hiera_t.yaml", "/mnt/data/Projects/sam2/checkpoints/sam2.1_hiera_tiny.pt")
+        mask = get_combined_mask(mask_gen, img)
+        mask = cv2.resize(mask.astype(np.uint8), (img.shape[1], img.shape[0]), cv2.INTER_NEAREST)
+        if seg_color:
+            img = color_replace(img, mask)
+        if env_swap_opt and bg_uploaded:
+            bg_arr = np.frombuffer(bg_uploaded.read(), np.uint8)
+            bg_img = cv2.imdecode(bg_arr, cv2.IMREAD_COLOR)
+            img = env_swap(img, mask, bg_img)
+    aug = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    col1, col2 = st.columns(2)
+    col1.image(orig, caption="Original", use_container_width=True)
+    col2.image(aug, caption="Augmented", use_container_width=True)
 
-    # Determine episodes to process
-    total_eps = ds_meta.total_episodes
-    num_eps = args.max_episodes if args.max_episodes and args.max_episodes < total_eps else total_eps
-    print(f"🔢 Processing {num_eps}/{total_eps} episodes...")
+# Full run section
+st.header("Run Full Dataset Augmentation")
+if st.button("Run Augmentation"):
+    target_repo = out_repo.strip() or f"{repo}-augmented"
+    api = HfApi()
+    if delete_existing:
+        try:
+            api.delete_repo(repo_id=target_repo, repo_type='dataset', token=token)
+            st.success(f"Deleted existing dataset: {target_repo}")
+        except Exception as e:
+            st.error(f"Failed to delete existing dataset: {e}")
+    cmd = [sys.executable, "augment.py", "--repo", repo, "--token", token]
+    if cache_dir:
+        cmd += ["--cache-dir", cache_dir]
+    if max_eps > 0:
+        cmd += ["--max-episodes", str(int(max_eps))]
+    if out_repo:
+        cmd += ["--out-repo", out_repo]
+    if light:
+        cmd.append("--light")
+    if seg_color:
+        cmd.append("--seg-color")
+    if env_swap_opt and bg_dir:
+        cmd += ["--env-swap", "--bg-dir", bg_dir]
+    st.text("Running: {}".format(" ".join(cmd)))
+    with st.spinner("Augmenting dataset, this may take a while..."):
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    st.subheader("Logs")
+    st.text_area("Output", result.stdout + "\n" + result.stderr, height=400)
 
-    # Detect vector keys
-    vector_keys = [k for k, ft in ds_meta.features.items() if ft['dtype'] not in ['image','video']]
-    skip = {'index','frame_index','episode_index','task_index','timestamp'}
-    vector_keys = [k for k in vector_keys if k not in skip]
-
-    # Image augmentation
-    img_ops = []
-    if args.light:
-        img_ops.append(RandomBrightnessContrast(p=1))
-    pipeline = Compose(img_ops) if img_ops else None
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if args.seg_color or args.env_swap:
-        print("🔍 Loading segmentation model...")
-        seg_model, preprocess = load_seg_model(device)
-
-    # Prepare output
-    out_repo = args.out_repo or f"{args.repo}-augmented"
-    out_cache = cache_base / out_repo
-    if out_cache.exists():
-        shutil.rmtree(out_cache)
-    new_ds = LeRobotDataset.create(
-        repo_id=out_repo,
-        fps=ds_meta.fps,
-        features=ds_meta.features,
-        root=out_cache
-    )
-    cam_key = ds_meta.camera_keys[0]
-
-    # Augmentation loops
-    for ep in tqdm(range(num_eps), desc='Episodes', unit='ep'):
-        parquet_path = repo_cache / ds_meta.get_data_file_path(ep)
-        hf_ds = load_dataset('parquet', data_files=[str(parquet_path)], split='train')
-        total_frames = len(hf_ds)
-
-        cap = cv2.VideoCapture(str(repo_cache / ds_meta.get_video_file_path(ep, cam_key)))
-
-        for i, row in enumerate(tqdm(hf_ds, desc=f'Ep {ep+1} Frames', total=total_frames, unit='fr')):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-            ok, frame = cap.read()
-            if not ok:
-                continue
-            img = pipeline(image=frame)['image'] if pipeline else frame
-            if args.seg_color or args.env_swap:
-                mask = get_mask(seg_model, preprocess, img, device)
-                mask = cv2.resize(mask, (img.shape[1], img.shape[0]), cv2.INTER_NEAREST)
-                if args.seg_color:
-                    img = color_replace(img, mask)
-                if args.env_swap and args.bg_dir:
-                    img = env_swap(img, mask, args.bg_dir)
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            frame_data = {cam_key: img_rgb}
-            for vk in vector_keys:
-                vec = np.array(row[vk])
-                frame_data[vk] = vec
-            new_ds.add_frame(frame_data)
-        cap.release()
-        new_ds.save_episode(task='teleop', encode_videos=False)
-
-    # Encode videos if generated
-    if num_eps > 0:
-        print("🔄 Encoding videos with libx264...")
-        for ep in tqdm(range(num_eps), desc='Encoding', unit='ep'):
-            img_dir = out_cache / 'images' / cam_key / f"episode_{ep:06d}"
-            out_vid = out_cache / ds_meta.get_video_file_path(ep, cam_key)
-            encode_with_ffmpeg(img_dir, out_vid, ds_meta.fps)
-
-    print("🚀 Pushing augmented dataset to Hugging Face...")
-    new_ds.push_to_hub(private=False, license='apache-2.0')
-    print(f"✅ Augmented dataset uploaded: {out_repo}")
-
-
-if __name__ == '__main__':
-    main()
+st.markdown("---")
+st.markdown("**Usage:** Place this file alongside your `augment.py` script. Then run `streamlit run streamlit_app.py`.")
