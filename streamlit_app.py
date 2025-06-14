@@ -69,8 +69,6 @@ if seg_color or env_swap_opt:
 col1, col2 = st.columns(2)
 orig_ph = col1.empty()
 aug_ph  = col2.empty()
-ep_progress = st.empty()
-frame_progress = st.empty()
 log_area = st.empty()
 
 # Stop control
@@ -98,27 +96,29 @@ if st.button('Run Augmentation'):
         except Exception as e:
             log_area.error(f'Failed to delete existing dataset: {e}')
 
-    # Progress bars
-    episode_bar = st.progress(0)
-    frame_bar = st.progress(0)
+    # Labelled progress bars
+    st.text("Dataset Progress")
+    dataset_progress = st.progress(0)
+    st.text("Episode Progress")
+    episode_progress = st.progress(0)
 
     def log_cb(line: str):
         log_area.text(line)
 
     def progress_cb(done: int, total: int):
         check_stop()
-        episode_bar.progress(done / total)
-        # reset frame bar at new episode
-        frame_bar.progress(0)
+        dataset_progress.progress(done / total)
+        # reset episode progress at new dataset step
+        episode_progress.progress(0)
 
     def frame_cb(orig: np.ndarray, aug_rgb: np.ndarray, ep: int, idx: int):
         check_stop()
-        # display images
+        # show frames
         orig_ph.image(orig, caption=f'E{ep} ▶️ Orig F{idx}', use_container_width=True)
         aug_ph.image(aug_rgb,  caption=f'E{ep} ▶️ Aug F{idx}', use_container_width=True)
-        # update frame progress
+        # update episode progress
         total = video_counts.get(ep, 1)
-        frame_bar.progress(min(idx+1, total) / total)
+        episode_progress.progress(min(idx+1, total) / total)
 
     try:
         run_augmentation(
@@ -143,6 +143,3 @@ if st.button('Run Augmentation'):
         st.warning("⏸️ Augmentation stopped by user.")
     except Exception as e:
         st.error(f"❌ Error during augmentation: {e}")
-
-st.markdown('---')
-st.markdown('**Usage:** Place this file alongside your `augment.py` script, then run `streamlit run streamlit_app.py`.')
