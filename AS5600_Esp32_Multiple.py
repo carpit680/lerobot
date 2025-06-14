@@ -4,13 +4,13 @@ import collections
 import numpy as np  # For median computation
 
 class AS5600Sensor:
-    def __init__(self, serial_port='/dev/cu.usbserial-120', baud_rate=115200):
+    def __init__(self, serial_port='/dev/cu.usbserial-110', baud_rate=115200):
         """
         Initialize the AS5600 sensor class.
         """
         self.serial_port = serial_port
         self.baud_rate = baud_rate
-        self.custom_zero = [2481, 12, 302, 4090, 3094, 2307]
+        self.custom_zero = [2500, 30, 3120, 4070, 3080, 2300]
         self.esp = serial.Serial(serial_port, baud_rate, timeout=1)
         self.dummy_angles = [0.0] * 6
 
@@ -116,7 +116,7 @@ class AS5600Sensor:
 
 # Example usage
 if __name__ == "__main__":
-    sensor = AS5600Sensor(serial_port='/dev/cu.usbserial-120', baud_rate=115200)
+    sensor = AS5600Sensor(serial_port='/dev/cu.usbserial-110', baud_rate=115200)
 
     try:
         while True:
