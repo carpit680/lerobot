@@ -1,5 +1,10 @@
+# streamlit_app.py
+
 #!/usr/bin/env python3
 import streamlit as st
+import altair as alt
+import numpy as np
+import pandas as pd
 from pathlib import Path
 import os
 import cv2
@@ -13,102 +18,87 @@ from augment import run_augmentation
 st.set_page_config(page_title='Lerobot Dataset Augmentation', layout='wide')
 st.title('🤖 Lerobot Dataset Augmentation GUI')
 
-# Sidebar: Dataset parameters
+# ─── Sidebar: Dataset parameters ──────────────────────────────────────────────
 st.sidebar.header('📦 Dataset Parameters')
-default_token = os.getenv('HF_TOKEN', '')
-token = st.sidebar.text_input('HF Access Token', type='password', value=default_token)
-hf_api = HfApi(token=token if token else None)
-username = st.sidebar.text_input('HuggingFace Username', value='carpit680')
+token        = st.sidebar.text_input('HF Access Token', type='password', value=os.getenv('HF_TOKEN',''))
+hf_api       = HfApi(token=token or None)
+username     = st.sidebar.text_input('HuggingFace Username', value='carpit680')
 available_repos = []
 if username:
     try:
-        available_repos = [repo.id for repo in hf_api.list_datasets(author=username)]
+        available_repos = [r.id for r in hf_api.list_datasets(author=username)]
     except Exception as e:
         st.sidebar.error(f"Error fetching repos: {e}")
-repo = st.sidebar.selectbox('Select Dataset Repo', available_repos) if available_repos else ''
-cache_dir = st.sidebar.text_input('Cache Directory', value=str(Path.home()/'.cache'/'lerobot'))
-max_eps = st.sidebar.number_input('Max Episodes to Process', min_value=1, step=1, value=1)
-out_repo = st.sidebar.text_input('Output HF Repo (optional)', value='')
+repo         = st.sidebar.selectbox('Select Dataset Repo', available_repos) if available_repos else ''
+cache_dir    = st.sidebar.text_input('Cache Directory', value=str(Path.home()/'.cache'/'lerobot'))
+max_eps      = st.sidebar.number_input('Max Episodes to Process', min_value=1, step=1, value=1)
+out_repo     = st.sidebar.text_input('Output HF Repo (optional)', value='')
 delete_existing = st.sidebar.checkbox('Delete existing HF dataset before push')
 
-# Sidebar: all augmentation options together
+# ─── Sidebar: Augmentation Options ────────────────────────────────────────────
 st.sidebar.header('🎨 Augmentation Options')
 
-light = st.sidebar.checkbox('Brightness/Contrast Jitter')
-if light:
-    brightness_limit = st.sidebar.slider('  Brightness Limit', 0.0, 1.0, 0.2, step=0.01, key='brightness_limit')
-    contrast_limit   = st.sidebar.slider('  Contrast Limit',   0.0, 1.0, 0.2, step=0.01, key='contrast_limit')
-else:
-    brightness_limit = 0.2
-    contrast_limit   = 0.2
+light        = st.sidebar.checkbox('Brightness/Contrast Jitter')
+brightness_limit, contrast_limit = (
+    st.sidebar.slider('  Brightness Limit', 0.0, 1.0, 0.2, step=0.01),
+    st.sidebar.slider('  Contrast Limit',   0.0, 1.0, 0.2, step=0.01),
+) if light else (0.2, 0.2)
 
-seg_color = st.sidebar.checkbox('Segment & Random-Color Robot')
-if seg_color:
-    color_alpha = st.sidebar.slider('  Color-overlay Alpha', 0.0, 1.0, 0.5, step=0.05, key='color_alpha')
-else:
-    color_alpha = 0.5
+seg_color    = st.sidebar.checkbox('Segment & Random-Color Robot')
+color_alpha  = st.sidebar.slider('  Color-overlay Alpha', 0.0, 1.0, 0.5, step=0.05) if seg_color else 0.5
+
 env_swap_opt = st.sidebar.checkbox('Segment & Swap Background')
-if env_swap_opt:
-    bg_dir = st.sidebar.text_input('  Background Images Directory Path', value="bg")
-else:
-    bg_dir = None
+bg_dir       = st.sidebar.text_input('  Background Images Directory Path', value="bg") if env_swap_opt else None
 
-crop        = st.sidebar.checkbox('Random Crop')
-if crop:
-    crop_frac     = st.sidebar.slider('  Crop Fraction', 0.1, 1.0, 0.8, step=0.05, key='crop_frac')
-else:
-    crop_frac = 0.8
+crop         = st.sidebar.checkbox('Random Crop')
+crop_frac    = st.sidebar.slider('  Crop Fraction', 0.1, 1.0, 0.8, step=0.05) if crop else 0.8
 
-rotate      = st.sidebar.checkbox('Rotate')
-if rotate:
-    rotate_limit  = st.sidebar.slider('  Max Rotation (°)', 0, 180, 45, step=1,  key='rotate_limit')
-else:
-    rotate_limit = 45
+rotate       = st.sidebar.checkbox('Rotate')
+rotate_limit = st.sidebar.slider('  Max Rotation (°)', 0, 180, 45, step=1) if rotate else 45
 
-hflip       = st.sidebar.checkbox('Horizontal Flip')
-if hflip:
-    hflip_prob    = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05, key='hflip_prob')
-else:
-    hflip_prob = 0.5
+hflip        = st.sidebar.checkbox('Horizontal Flip')
+hflip_prob   = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05) if hflip else 0.5
 
-vflip       = st.sidebar.checkbox('Vertical Flip')
-if vflip:
-    vflip_prob    = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05, key='vflip_prob')
-else:
-    vflip_prob = 0.5
+vflip        = st.sidebar.checkbox('Vertical Flip')
+vflip_prob   = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05) if vflip else 0.5
 
-noise       = st.sidebar.checkbox('Gaussian Noise')
-if noise:
-    noise_strength = st.sidebar.slider('  Noise Strength', 0, 100, 25, step=1, key='noise_strength')
-else:
-    noise_strength = 25
+noise        = st.sidebar.checkbox('Gaussian Noise')
+noise_strength = st.sidebar.slider('  Noise Strength', 0, 100, 25, step=1) if noise else 25
 
-blur        = st.sidebar.checkbox('Gaussian Blur')
-if blur:
-    blur_limit    = st.sidebar.slider('  Blur Kernel Size', 1, 50, 7, step=1, key='blur_limit')
-else:
-    blur_limit = 7
+blur         = st.sidebar.checkbox('Gaussian Blur')
+blur_limit   = st.sidebar.slider('  Blur Kernel Size', 1, 50, 7, step=1) if blur else 7
 
-occlusion   = st.sidebar.checkbox('Random Occlusion')
-if occlusion:
-    occ_size      = st.sidebar.slider('  Occlusion Size Fraction', 0.0, 0.5, 0.1, step=0.01, key='occ_size')
-else:
-    occ_size = 0.1
+occlusion    = st.sidebar.checkbox('Random Occlusion')
+occ_size     = st.sidebar.slider('  Occlusion Size Fraction', 0.0, 0.5, 0.1, step=0.01) if occlusion else 0.1
 
-# Sidebar: run / stop / reset
+# ─── Joint-Trajectory Augmentation ───────────────────────────────────────────
+joint_aug = st.sidebar.checkbox('Joint Trajectory Augmentation')
+if joint_aug:
+    # slider in degrees, 0–10°
+    max_deg = st.sidebar.slider(
+        '  Max Joint Variation (°)',
+        0.0, 10.0, 5.0, step=0.1, key='joint_max_deg'
+    )
+    # convert to radians for internal use
+    joint_max = max_deg
+else:
+    joint_max = 0.0
+# ─── Sidebar: Run / Stop / Reset ─────────────────────────────────────────────
 st.sidebar.header('🛠️ Controls')
-controls = st.sidebar.columns(3)
-if controls[0].button('▶️ Run'):
+c1, c2, c3 = st.sidebar.columns(3)
+if c1.button('▶️ Run'):
     st.session_state.stop = False
-    st.session_state.run = True
-if controls[1].button('⏹️ Stop'):
+    st.session_state.run  = True
+if c2.button('⏹️ Stop'):
     st.session_state.stop = True
-if controls[2].button('🔄 Reset'):
+if c3.button('🔄 Reset'):
     st.session_state.stop = False
-    st.session_state.run = False
+    st.session_state.run  = False
+    for k in ('orig_vals','aug_vals'):
+        st.session_state.pop(k, None)
     st.rerun()
 
-# Sidebar: visualize link
+# ─── Sidebar: Visualize Link ──────────────────────────────────────────────────
 display_name = out_repo.strip() or f"{repo}-augmented"
 path_param   = urllib.parse.quote(f"/{display_name}/episode_0", safe='')
 visual_url   = f"https://huggingface.co/spaces/lerobot/visualize_dataset?path={path_param}"
@@ -118,31 +108,43 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-# Initialize session state
-if 'stop' not in st.session_state: st.session_state.stop = False
-if 'run'  not in st.session_state: st.session_state.run  = False
+# initialize session flags
+st.session_state.setdefault('stop', False)
+st.session_state.setdefault('run',  False)
 
-# Preload metadata for live preview
+# ─── Preload metadata & compute keys ─────────────────────────────────────────
 meta_root = Path(cache_dir) / repo
 if meta_root.exists():
-    ds_meta = LeRobotDatasetMetadata(repo_id=repo, root=str(meta_root), local_files_only=True)
-    video_counts = {}
-    for cam in ds_meta.camera_keys:
-        for ep in range(int(max_eps)):
-            vid = meta_root / ds_meta.get_video_file_path(ep, cam)
-            cap = cv2.VideoCapture(str(vid))
-            video_counts[(ep, cam)] = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
-            cap.release()
+    ds_meta = LeRobotDatasetMetadata(repo_id=repo,
+                                     root=str(meta_root),
+                                     local_files_only=True)
+    video_counts = {
+        (ep,cam): int(cv2.VideoCapture(str(meta_root/ ds_meta.get_video_file_path(ep,cam)))
+                      .get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+        for cam in ds_meta.camera_keys
+        for ep  in range(int(max_eps))
+    }
+    skip = {'index','frame_index','episode_index','task_index','timestamp'}
+    vector_keys = [
+        k for k,ft in ds_meta.features.items()
+        if ft['dtype'] not in ['image','video'] and k not in skip
+    ]
+    # any key containing these substrings will be bumped
+    aug_keys   = [k for k in vector_keys
+                  if any(x in k for x in ('joint','action','state'))]
 else:
     ds_meta = None
     video_counts = {}
+    vector_keys = []
+    aug_keys    = []
 
+# ─── Live Frame Preview ──────────────────────────────────────────────────────
 st.subheader("🔍 Live Frame Preview")
 frame_placeholders = {}
 if ds_meta:
     for cam in ds_meta.camera_keys:
-        c1, c2 = st.columns(2)
-        frame_placeholders[cam] = (c1.empty(), c2.empty())
+        col1, col2 = st.columns(2)
+        frame_placeholders[cam] = (col1.empty(), col2.empty())
 
 log_box, log_lines = st.empty(), []
 
@@ -150,17 +152,33 @@ def check_stop():
     if st.session_state.stop:
         raise StopIteration("Stopped by user")
 
-# When Run is pressed...
+# ─── Chart Placeholders ──────────────────────────────────────────────────────
+if joint_aug and aug_keys:
+    st.subheader("🎛️ Joint Trajectory Preview")
+    col_o, col_a = st.columns(2)
+    orig_chart_ph = col_o.empty()
+    aug_chart_ph  = col_a.empty()
+else:
+    orig_chart_ph = aug_chart_ph = None
+
+# ─── When Run is pressed ──────────────────────────────────────────────────────
 if st.session_state.run:
+    # init buffers
+    if joint_aug and aug_keys and 'orig_vals' not in st.session_state:
+        st.session_state.orig_vals = []
+        st.session_state.aug_vals  = []
+
+    # delete old repo?
     if delete_existing and out_repo.strip():
         try:
-            HfApi().delete_repo(repo_id=out_repo.strip(), repo_type='dataset', token=token)
+            HfApi().delete_repo(repo_id=out_repo.strip(),
+                                repo_type='dataset', token=token)
             st.success(f"Deleted existing dataset: {out_repo.strip()}")
         except Exception as e:
             st.error(f"Failed to delete existing dataset: {e}")
 
     st.subheader('🚀 Running Augmentation')
-    st.text("🔁 Dataset Progress");    dp = st.progress(0)
+    st.text("🔁 Dataset Progress");  dp = st.progress(0)
     st.text("🎞️ Episode Progress"); ep = st.progress(0)
 
     def log_cb(line):
@@ -172,14 +190,31 @@ if st.session_state.run:
         dp.progress(done/total)
         ep.progress(0)
 
-    def frame_cb(o, a, e_i, f_i):
+    def frame_cb(o, a, epi, frm, orig_v, aug_v):
         check_stop()
+
+        # update the image previews (unchanged)
         for cam, (o_ph, a_ph) in frame_placeholders.items():
             if cam in o and cam in a:
-                o_ph.image(o[cam], caption=f"{cam} E{e_i} ▶ Orig F{f_i}", width=320)
-                a_ph.image(a[cam], caption=f"{cam} E{e_i} ▶ Aug  F{f_i}", width=320)
-                total = video_counts.get((e_i, cam), 1)
-                ep.progress(min(f_i+1, total)/total)
+                o_ph.image(o[cam], caption=f"{cam} E{epi} ▶ Orig F{frm}", width=320)
+                a_ph.image(a[cam], caption=f"{cam} E{epi} ▶ Aug  F{frm}", width=320)
+
+        # incremental chart update
+        if orig_chart_ph and orig_v is not None:
+            # first frame: create the chart object
+            if 'orig_chart_obj' not in st.session_state:
+                df_init = pd.DataFrame([orig_v])
+                st.session_state.orig_chart_obj = orig_chart_ph.line_chart(df_init)
+                df_init_aug = pd.DataFrame([aug_v])
+                st.session_state.aug_chart_obj  = aug_chart_ph .line_chart(df_init_aug)
+            else:
+                # subsequent frames: append only the new row
+                st.session_state.orig_chart_obj.add_rows(
+                    pd.DataFrame([orig_v])
+                )
+                st.session_state.aug_chart_obj.add_rows(
+                    pd.DataFrame([aug_v])
+                )
 
     try:
         run_augmentation(
@@ -188,20 +223,22 @@ if st.session_state.run:
             checkpoint='/mnt/data/Projects/sam2/checkpoints/sam2.1_hiera_tiny.pt',
             cache_dir=cache_dir, max_episodes=int(max_eps),
             out_repo=out_repo.strip() or None,
-            # segmentation + color
-            seg_color=seg_color, env_swap_opt=env_swap_opt, bg_dir=bg_dir, alpha=color_alpha,
-            # brightness/contrast
-            light=light, brightness_limit=brightness_limit, contrast_limit=contrast_limit,
-            # other aug flags + strengths
-            crop=crop,       crop_frac=crop_frac,
-            rotate=rotate,   rotate_limit=rotate_limit,
-            hflip=hflip,     hflip_prob=hflip_prob,
-            vflip=vflip,     vflip_prob=vflip_prob,
-            noise=noise,     noise_strength=noise_strength,
-            blur=blur,       blur_limit=blur_limit,
+            # image‐based
+            seg_color=seg_color, env_swap_opt=env_swap_opt,
+            bg_dir=bg_dir, alpha=color_alpha,
+            light=light, brightness_limit=brightness_limit,
+            contrast_limit=contrast_limit,
+            crop=crop, crop_frac=crop_frac,
+            rotate=rotate, rotate_limit=rotate_limit,
+            hflip=hflip, hflip_prob=hflip_prob,
+            vflip=vflip, vflip_prob=vflip_prob,
+            noise=noise, noise_strength=noise_strength,
+            blur=blur, blur_limit=blur_limit,
             occlusion=occlusion, occ_size=occ_size,
-            # callbacks
-            progress_cb=progress_cb, log_cb=log_cb, frame_cb=frame_cb,
+            # joint/action/state bump
+            joint_aug=joint_aug, joint_max=joint_max,
+            progress_cb=progress_cb, log_cb=log_cb,
+            frame_cb=frame_cb,
         )
         st.balloons(); st.success("🎉 Augmentation complete!")
     except StopIteration:

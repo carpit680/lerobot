@@ -1,3 +1,5 @@
+# augment.py
+
 #!/usr/bin/env python3
 import os, random, shutil, subprocess
 from pathlib import Path
@@ -22,7 +24,10 @@ from albumentations import (
 )
 
 def load_mask_generator(device, config_path, checkpoint_path):
-    sam = build_sam2(config_path, checkpoint_path, device=device, apply_postprocessing=False)
+    sam = build_sam2(
+        config_path, checkpoint_path,
+        device=device, apply_postprocessing=False
+    )
     return SAM2AutomaticMaskGenerator(sam)
 
 def color_replace(img, mask, alpha=0.5):
@@ -52,7 +57,8 @@ def encode_with_ffmpeg(img_dir: Path, output_path: Path, fps: int):
     cmd = [
         'ffmpeg','-f','image2','-r',str(fps),
         '-i',str(img_dir/'frame_%06d.png'),
-        '-vcodec','libx264','-pix_fmt','yuv420p','-crf','23','-loglevel','error','-y',str(output_path)
+        '-vcodec','libx264','-pix_fmt','yuv420p',
+        '-crf','23','-loglevel','error','-y',str(output_path)
     ]
     subprocess.run(cmd,check=True)
 
@@ -73,7 +79,7 @@ def run_augmentation(
     light: bool = False,
     brightness_limit: float = 0.2,
     contrast_limit: float = 0.2,
-    # extra aug flags + strengths
+    # other aug flags
     crop: bool = False,
     crop_frac: float = 0.8,
     rotate: bool = False,
@@ -88,96 +94,117 @@ def run_augmentation(
     blur_limit: int = 7,
     occlusion: bool = False,
     occ_size: float = 0.1,
+    # joint/action/state bump
+    joint_aug: bool = False,
+    joint_max: float = 0.0,
     # callbacks
     progress_cb: Optional[Callable[[int,int],None]] = None,
     log_cb:      Optional[Callable[[str],None]]      = None,
-    frame_cb:    Optional[Callable[[dict,dict,int,int],None]] = None,
+    frame_cb:    Optional[Callable[...,None]]        = None,
 ):
     os.environ['HF_HUB_TOKEN'] = token
     base      = Path(cache_dir) if cache_dir else Path.home()/'.cache'/'lerobot'
     meta_root = base/repo; meta_root.mkdir(parents=True,exist_ok=True)
 
-    if log_cb: log_cb(f'Downloading metadata from {repo}...')
-    ds_meta = LeRobotDatasetMetadata(repo_id=repo, root=str(meta_root), local_files_only=False)
-    LeRobotDataset(repo_id=repo, root=str(meta_root), local_files_only=False, download_videos=True)
+    if log_cb: log_cb(f'Downloading metadata from {repo}…')
+    ds_meta = LeRobotDatasetMetadata(repo_id=repo,
+                                     root=str(meta_root),
+                                     local_files_only=False)
+    LeRobotDataset(repo_id=repo,
+                   root=str(meta_root),
+                   local_files_only=False,
+                   download_videos=True)
+
+    # pick out all numeric vectors
+    skip_keys   = {'index','frame_index','episode_index','task_index','timestamp'}
+    vector_keys = [
+        k for k,ft in ds_meta.features.items()
+        if ft['dtype'] not in ['image','video'] and k not in skip_keys
+    ]
+    # any vector that mentions joint, action or state
+    aug_keys    = [k for k in vector_keys
+                   if any(x in k for x in ('joint','action','state'))]
 
     total_eps = ds_meta.total_episodes
     num_eps   = min(max_episodes or total_eps, total_eps)
     if log_cb: log_cb(f'Processing {num_eps}/{total_eps} episodes')
 
-    skip_keys = {'index','frame_index','episode_index','task_index','timestamp'}
-    vector_keys = [
-        k for k,ft in ds_meta.features.items()
-        if ft['dtype'] not in ['image','video'] and k not in skip_keys
-    ]
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    mask_gen = load_mask_generator(device, config, checkpoint) if (seg_color or env_swap_opt) else None
+    device   = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    mask_gen = load_mask_generator(device, config, checkpoint) \
+               if (seg_color or env_swap_opt) else None
 
     out_name = out_repo or f'{repo}-augmented'
     out_root = base/out_name
     if out_root.exists(): shutil.rmtree(out_root)
-    new_ds = LeRobotDataset.create(repo_id=out_name, fps=ds_meta.fps, features=ds_meta.features, root=out_root)
+    new_ds = LeRobotDataset.create(repo_id=out_name,
+                                   fps=ds_meta.fps,
+                                   features=ds_meta.features,
+                                   root=out_root)
 
     for ep in range(num_eps):
         if log_cb: log_cb(f'▶️ Episode {ep+1}/{num_eps}')
         if progress_cb: progress_cb(ep+1, num_eps)
 
-        parquet = meta_root/ ds_meta.get_data_file_path(ep)
-        hf_ds   = load_dataset('parquet', data_files=[str(parquet)], split='train')
+        parquet    = meta_root/ ds_meta.get_data_file_path(ep)
+        hf_ds      = load_dataset('parquet',
+                                  data_files=[str(parquet)],
+                                  split='train')
+        num_frames = len(hf_ds)
 
+        # build per-key sinusoidal offsets
+        offsets_map = {}
+        if joint_aug and aug_keys and num_frames > 1:
+            t      = np.arange(num_frames)
+            scales = np.sin(np.pi * t/(num_frames-1))
+            for k in aug_keys:
+                sample  = hf_ds[0][k]
+                n       = len(sample)
+                dirs    = np.random.choice([-1,1], size=(n,))
+                offsets_map[k] = np.outer(scales, dirs * joint_max)
+        else:
+            offsets_map = {}
+
+        # open all video captures
         caps = {
-            cam: cv2.VideoCapture(str(meta_root/ ds_meta.get_video_file_path(ep, cam)))
+            cam: cv2.VideoCapture(str(meta_root/ ds_meta.get_video_file_path(ep,cam)))
             for cam in ds_meta.camera_keys
         }
 
         for i, row in enumerate(hf_ds):
             orig_dict, aug_dict, frame_data = {}, {}, {}
-
-            for cam, cap in caps.items():
+            # —— image part ——
+            for cam,cap in caps.items():
                 cap.set(cv2.CAP_PROP_POS_FRAMES, i)
                 ok, frame = cap.read()
                 if not ok: continue
 
-                # build transforms list
+                # build transforms…
                 transforms = []
                 if light:
-                    transforms.append(
-                        RandomBrightnessContrast(
-                            brightness_limit=brightness_limit,
-                            contrast_limit=contrast_limit,
-                            p=1
-                        )
-                    )
+                    transforms.append(RandomBrightnessContrast(
+                        brightness_limit=brightness_limit,
+                        contrast_limit=contrast_limit,p=1))
                 if crop:
-                    h, w = frame.shape[:2]
-                    transforms.append(
-                        RandomCrop(
-                            height=int(h*crop_frac),
-                            width=int(w*crop_frac),
-                            p=1
-                        )
-                    )
+                    h,w = frame.shape[:2]
+                    transforms.append(RandomCrop(
+                        height=int(h*crop_frac),
+                        width =int(w*crop_frac),p=1))
                 if rotate:
-                    transforms.append(Rotate(limit=rotate_limit, p=1))
+                    transforms.append(Rotate(limit=rotate_limit,p=1))
                 if hflip:
                     transforms.append(HorizontalFlip(p=hflip_prob))
                 if vflip:
                     transforms.append(VerticalFlip(p=vflip_prob))
                 if noise:
-                    transforms.append(GaussNoise(var_limit=(0, noise_strength), p=1))
+                    transforms.append(GaussNoise(var_limit=(0,noise_strength),p=1))
                 if blur:
-                    transforms.append(Blur(blur_limit=blur_limit, p=1))
+                    transforms.append(Blur(blur_limit=blur_limit,p=1))
                 if occlusion:
-                    h, w = frame.shape[:2]
-                    transforms.append(
-                        CoarseDropout(
-                            max_holes=8,
-                            max_height=int(h*occ_size),
-                            max_width=int(w*occ_size),
-                            p=1
-                        )
-                    )
+                    h,w = frame.shape[:2]
+                    transforms.append(CoarseDropout(
+                        max_holes=8,
+                        max_height=int(h*occ_size),
+                        max_width =int(w*occ_size),p=1))
 
                 aug_frame = frame
                 if transforms:
@@ -190,33 +217,45 @@ def run_augmentation(
                     if seg_color:
                         img = apply_individual_colors(img, masks, alpha)
                     if env_swap_opt and bg_dir:
-                        combined = np.any([m['segmentation'] for m in masks], axis=0).astype(np.uint8)
+                        combined = np.any(
+                            [m['segmentation'] for m in masks], axis=0
+                        ).astype(np.uint8)
                         img = env_swap(img, combined, bg_dir)
 
-                orig_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                aug_rgb  = cv2.cvtColor(img,   cv2.COLOR_BGR2RGB)
-                orig_dict[cam], aug_dict[cam] = orig_rgb, aug_rgb
-                frame_data[cam] = aug_rgb
+                orig_dict[cam]  = cv2.cvtColor(frame,   cv2.COLOR_BGR2RGB)
+                aug_dict [cam]  = cv2.cvtColor(img,     cv2.COLOR_BGR2RGB)
+                frame_data[cam] = cv2.cvtColor(img,     cv2.COLOR_BGR2RGB)
 
-            # copy vector data
+            # —— vector part ——
+            orig_v = None
+            aug_v  = None
             for k in vector_keys:
-                frame_data[k] = np.array(row[k])
-            new_ds.add_frame(frame_data)
+                vec = np.array(row[k], dtype=float)
+                if k in offsets_map:
+                    pert = vec + offsets_map[k][i]
+                    frame_data[k] = pert
+                else:
+                    frame_data[k] = vec
 
+            # pack out one combined vector for charting (we use aug_keys order)
+            if joint_aug and aug_keys:
+                orig_v = np.concatenate([row[k]           for k in aug_keys])
+                aug_v  = np.concatenate([frame_data[k] for k in aug_keys])
+
+            new_ds.add_frame(frame_data)
             if frame_cb:
-                frame_cb(orig_dict, aug_dict, ep, i)
+                frame_cb(orig_dict, aug_dict, ep, i, orig_v, aug_v)
 
         for cap in caps.values():
             cap.release()
-
         new_ds.save_episode(task='teleop', encode_videos=False)
 
     # encode & push
-    if log_cb: log_cb('Encoding videos...')
+    if log_cb: log_cb('Encoding videos…')
     for ep in range(num_eps):
         for cam in ds_meta.camera_keys:
             img_dir = out_root/'images'/cam/f'episode_{ep:06d}'
-            out_vid = out_root/ ds_meta.get_video_file_path(ep, cam)
+            out_vid = out_root/ ds_meta.get_video_file_path(ep,cam)
             encode_with_ffmpeg(img_dir, out_vid, ds_meta.fps)
 
     if log_cb: log_cb(f'Pushing to {out_name}…')
