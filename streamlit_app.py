@@ -8,6 +8,7 @@ from albumentations import Compose, RandomBrightnessContrast
 import torch
 from huggingface_hub import HfApi
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+import urllib.parse
 
 from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
@@ -48,14 +49,31 @@ if env_swap_opt:
     bg_dir = st.sidebar.text_input('Background Images Directory Path')
 color_alpha = st.sidebar.slider('Color Overlay Alpha', 0.0, 1.0, 0.5, step=0.05)
 
+# Sidebar for controls
 st.sidebar.header('🛠️ Controls')
+controls = st.sidebar.columns(3)
+if controls[0].button('▶️ Run'):
+    st.session_state.stop = False
+    st.session_state.run = True
+if controls[1].button('⏹️ Stop'):
+    st.session_state.stop = True
+if controls[2].button('🔄 Reset'):
+    st.session_state.stop = False
+    st.session_state.run = False
+    st.rerun()
+
+# Visualize Dataset button
+# Determine the output dataset name (default to '<repo>-augmented' if none provided)
+display_name = out_repo.strip() if out_repo.strip() else f"{repo}-augmented"
+path_param = urllib.parse.quote(f"/{display_name}/episode_0", safe='')
+visual_url = f"https://huggingface.co/spaces/lerobot/visualize_dataset?path={path_param}"
+st.sidebar.markdown(f"<a href='{visual_url}' target='_blank'><button style='width:100%'>🔗 Visualize Dataset</button></a>", unsafe_allow_html=True)
+
+# Initialize session state
 if 'stop' not in st.session_state:
     st.session_state.stop = False
-if st.sidebar.button('⏹️ Stop Augmentation'):
-    st.session_state.stop = True
-if st.sidebar.button('🔄 Reset'):
-    st.session_state.stop = False
-    st.rerun()
+if 'run' not in st.session_state:
+    st.session_state.run = False
 
 # Preload metadata and frame counts
 meta_root = Path(cache_dir) / repo
@@ -95,16 +113,13 @@ if ds_meta:
 log_box = st.empty()
 log_lines = []
 
-# Helpers
 def check_stop():
     if st.session_state.stop:
         raise StopIteration("Augmentation stopped by user")
 
-# Run augmentation
-st.header('🚀 Run Full Dataset Augmentation')
-if st.button('▶️ Run Augmentation'):
-    st.session_state.stop = False
-
+# Run augmentation when triggered
+if st.session_state.run:
+    # Delete existing if requested
     if delete_existing and out_repo.strip():
         try:
             HfApi().delete_repo(repo_id=out_repo.strip(), repo_type='dataset', token=token)
@@ -112,9 +127,10 @@ if st.button('▶️ Run Augmentation'):
         except Exception as e:
             st.error(f'Failed to delete existing dataset: {e}')
 
-    st.text("🔁 Dataset Augmentation Progress")
+    st.subheader('🚀 Running Augmentation')
+    st.text("🔁 Overall Dataset Progress")
     dataset_progress = st.progress(0)
-    st.text("🎞️ Current Episode Frame Progress")
+    st.text("🎞️ Episode Frame Progress")
     episode_progress = st.progress(0)
 
     def log_cb(line: str):
@@ -130,8 +146,8 @@ if st.button('▶️ Run Augmentation'):
         check_stop()
         for cam_key, (orig_ph, aug_ph) in frame_placeholders.items():
             if cam_key in orig_dict and cam_key in aug_dict:
-                orig_ph.image(orig_dict[cam_key], caption=f'{cam_key} E{ep} ▶️ Orig F{idx}', use_container_width=True)
-                aug_ph.image(aug_dict[cam_key], caption=f'{cam_key} E{ep} ▶️ Aug F{idx}', use_container_width=True)
+                orig_ph.image(orig_dict[cam_key], caption=f'{cam_key} E{ep} ▶️ Orig F{idx}', width=320)
+                aug_ph.image(aug_dict[cam_key], caption=f'{cam_key} E{ep} ▶️ Aug F{idx}', width=320)
                 total = video_counts.get((ep, cam_key), 1)
                 episode_progress.progress(min(idx + 1, total) / total)
 
