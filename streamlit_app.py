@@ -154,15 +154,15 @@ if ds_meta:
         col1, col2 = st.columns(2)
         frame_placeholders[cam] = (col1.empty(), col2.empty())
 
-log_box, log_lines = st.empty(), []
 
 def check_stop():
     if st.session_state.stop:
         raise StopIteration("Stopped by user")
 
 # ─── Chart Placeholders ──────────────────────────────────────────────────────
+st.subheader("🎛️ Joint Trajectory Preview")
 if joint_aug and aug_keys:
-    st.subheader("🎛️ Joint Trajectory Preview")
+    st.subheader("")
     col_o, col_a = st.columns(2)
     orig_chart_ph = col_o.empty()
     aug_chart_ph  = col_a.empty()
@@ -171,6 +171,7 @@ else:
 
 if 'joint_values_ph' not in st.session_state:
     st.session_state.joint_values_ph = st.empty()
+
 # ─── When Run is pressed ──────────────────────────────────────────────────────
 if st.session_state.run:
     # init buffers
@@ -188,6 +189,8 @@ if st.session_state.run:
             st.error(f"Failed to delete existing dataset: {e}")
 
     st.subheader('🚀 Running Augmentation')
+    log_box, log_lines = st.empty(), []
+
     st.text("🔁 Dataset Progress");  dp = st.progress(0)
     st.text("🎞️ Episode Progress"); ep = st.progress(0)
 
@@ -232,7 +235,7 @@ if st.session_state.run:
                 alt.Chart(df_long)
                 .mark_line()
                 .encode(
-                    x=alt.X('frame:Q', title='Frame'),
+                    x=alt.X('frame:Q', title='Time'),
                     y=alt.Y('value:Q', axis=alt.Axis(title='Degrees')),
                     color=alt.Color('variable:N', legend=None, scale=alt.Scale(scheme='category10')),
                     strokeDash=alt.StrokeDash('type:N', legend=alt.Legend(title="Type")),
