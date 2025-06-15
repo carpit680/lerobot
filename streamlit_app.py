@@ -17,8 +17,8 @@ from augment import run_augmentation
 UPDATE_EVERY = 5
 
 # --- Streamlit UI ---
-st.set_page_config(page_title='Lerobot Dataset Augmentation', layout='wide')
-st.title('🤖 Lerobot Dataset Augmentation GUI')
+st.set_page_config(page_title='Data Multiplicata!', layout='wide')
+st.title('🤖 Data Multiplicata!')
 
 # ─── Sidebar: Dataset parameters ──────────────────────────────────────────────
 st.sidebar.header('📦 Dataset Parameters')
@@ -42,36 +42,36 @@ st.sidebar.header('🎨 Augmentation Options')
 
 light        = st.sidebar.checkbox('Brightness/Contrast Jitter')
 brightness_limit, contrast_limit = (
-    st.sidebar.slider('  Brightness Limit', 0.0, 1.0, 0.2, step=0.01),
-    st.sidebar.slider('  Contrast Limit',   0.0, 1.0, 0.2, step=0.01),
+    st.sidebar.slider('  Brightness Limit', 0.0, 1.0, 0.2, step=0.01, key='brightness_limit'),
+    st.sidebar.slider('  Contrast Limit',   0.0, 1.0, 0.2, step=0.01, key='contrast_limit'),
 ) if light else (0.2, 0.2)
 
 seg_color    = st.sidebar.checkbox('Segment & Random-Color Robot')
-color_alpha  = st.sidebar.slider('  Color-overlay Alpha', 0.0, 1.0, 0.5, step=0.05) if seg_color else 0.5
+color_alpha  = st.sidebar.slider('  Color-overlay Alpha', 0.0, 1.0, 0.5, step=0.05, key='color_alpha') if seg_color else 0.5
 
 env_swap_opt = st.sidebar.checkbox('Segment & Swap Background')
 bg_dir       = st.sidebar.text_input('  Background Images Directory Path', value="bg") if env_swap_opt else None
 
 crop         = st.sidebar.checkbox('Random Crop')
-crop_frac    = st.sidebar.slider('  Crop Fraction', 0.1, 1.0, 0.8, step=0.05) if crop else 0.8
+crop_frac    = st.sidebar.slider('  Crop Fraction', 0.1, 1.0, 0.8, step=0.05, key='crop_frac') if crop else 0.8
 
 rotate       = st.sidebar.checkbox('Rotate')
-rotate_limit = st.sidebar.slider('  Max Rotation (°)', 0, 180, 45, step=1) if rotate else 45
+rotate_limit = st.sidebar.slider('  Max Rotation (°)', 0, 180, 45, step=1, key='rotate_limit') if rotate else 45
 
 hflip        = st.sidebar.checkbox('Horizontal Flip')
-hflip_prob   = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05) if hflip else 0.5
+hflip_prob   = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05, key='hflip_prob') if hflip else 0.5
 
 vflip        = st.sidebar.checkbox('Vertical Flip')
-vflip_prob   = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05) if vflip else 0.5
+vflip_prob   = st.sidebar.slider('  Flip Probability', 0.0, 1.0, 0.5, step=0.05, key='vflip_prob') if vflip else 0.5
 
 noise        = st.sidebar.checkbox('Gaussian Noise')
-noise_strength = st.sidebar.slider('  Noise Strength', 0, 100, 25, step=1) if noise else 25
+noise_strength = st.sidebar.slider('  Noise Strength', 0, 100, 25, step=1, key='noise_strength') if noise else 25
 
 blur         = st.sidebar.checkbox('Gaussian Blur')
-blur_limit   = st.sidebar.slider('  Blur Kernel Size', 1, 50, 7, step=1) if blur else 7
+blur_limit   = st.sidebar.slider('  Blur Kernel Size', 1, 50, 7, step=1, key='blur_limit') if blur else 7
 
 occlusion    = st.sidebar.checkbox('Random Occlusion')
-occ_size     = st.sidebar.slider('  Occlusion Size Fraction', 0.0, 0.5, 0.1, step=0.01) if occlusion else 0.1
+occ_size     = st.sidebar.slider('  Occlusion Size Fraction', 0.0, 0.5, 0.1, step=0.01, key='occ_size') if occlusion else 0.1
 
 # ─── Joint-Trajectory Augmentation ───────────────────────────────────────────
 joint_aug = st.sidebar.checkbox('Joint Trajectory Augmentation')
