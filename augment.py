@@ -123,8 +123,7 @@ def run_augmentation(
     ]
     # any vector that mentions joint, action or state
     aug_keys    = [k for k in vector_keys
-                   if any(x in k for x in ('joint','action','state'))]
-
+                   if any(x in k for x in ('action','observation.state'))]
     total_eps = ds_meta.total_episodes
     num_eps   = min(max_episodes or total_eps, total_eps)
     if log_cb: log_cb(f'Processing {num_eps}/{total_eps} episodes')

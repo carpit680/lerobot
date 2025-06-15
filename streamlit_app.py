@@ -14,6 +14,8 @@ import urllib.parse
 
 from augment import run_augmentation
 
+UPDATE_EVERY = 5
+
 # --- Streamlit UI ---
 st.set_page_config(page_title='Lerobot Dataset Augmentation', layout='wide')
 st.title('🤖 Lerobot Dataset Augmentation GUI')
@@ -193,28 +195,55 @@ if st.session_state.run:
     def frame_cb(o, a, epi, frm, orig_v, aug_v):
         check_stop()
 
-        # update the image previews (unchanged)
+        # 1) update images
         for cam, (o_ph, a_ph) in frame_placeholders.items():
             if cam in o and cam in a:
                 o_ph.image(o[cam], caption=f"{cam} E{epi} ▶ Orig F{frm}", width=320)
                 a_ph.image(a[cam], caption=f"{cam} E{epi} ▶ Aug  F{frm}", width=320)
 
-        # incremental chart update
-        if orig_chart_ph and orig_v is not None:
-            # first frame: create the chart object
-            if 'orig_chart_obj' not in st.session_state:
-                df_init = pd.DataFrame([orig_v])
-                st.session_state.orig_chart_obj = orig_chart_ph.line_chart(df_init)
-                df_init_aug = pd.DataFrame([aug_v])
-                st.session_state.aug_chart_obj  = aug_chart_ph .line_chart(df_init_aug)
-            else:
-                # subsequent frames: append only the new row
-                st.session_state.orig_chart_obj.add_rows(
-                    pd.DataFrame([orig_v])
+        # 2) if charts are active and we have vector data:
+        if not (orig_chart_ph and orig_v is not None):
+            return
+
+        # append to session buffers
+        st.session_state.orig_vals.append(orig_v)
+        st.session_state.aug_vals .append(aug_v)
+
+        # helper to build & draw an Altair chart
+        def draw_altair(data_list, placeholder):
+            # build wide DataFrame
+            df = pd.DataFrame(data_list)
+            df['frame'] = df.index
+            # melt to long
+            df_long = df.melt(
+                id_vars='frame',
+                var_name='variable',
+                value_name='value'
+            )
+            # split first half dims → action, rest → state
+            n = df.shape[1] - 1
+            half = n // 2
+            df_long['type'] = df_long['variable'].astype(int).apply(
+                lambda x: 'action' if x < half else 'state'
+            )
+            chart = (
+                alt.Chart(df_long)
+                .mark_line()
+                .encode(
+                    x='frame:Q',
+                    y='value:Q',
+                    color='variable:N',
+                    strokeDash=alt.StrokeDash('type:N'),
                 )
-                st.session_state.aug_chart_obj.add_rows(
-                    pd.DataFrame([aug_v])
-                )
+                .properties(width=350, height=250)
+            )
+            placeholder.altair_chart(chart, use_container_width=True)
+
+        if (frm % UPDATE_EVERY) != 0:
+            return
+        # redraw both charts in full
+        draw_altair(st.session_state.orig_vals, orig_chart_ph)
+        draw_altair(st.session_state.aug_vals,  aug_chart_ph)
 
     try:
         run_augmentation(
