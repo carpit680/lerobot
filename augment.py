@@ -131,18 +131,11 @@ def run_augmentation(
     out_root = base / out_name
     if out_root.exists():
         shutil.rmtree(out_root)
-    # fast‐clone (hard‐link) the original cache into your new root:
-    if log_cb: log_cb("📁 Cloning original dataset (hard-links) …")
-    shutil.copytree(
-        meta_root,   # e.g. ~/.cache/lerobot/<repo>
-        out_root,    # where your augmented dataset will live
-        dirs_exist_ok=True,
-        copy_function=os.link
-    )
-    new_ds = LeRobotDataset(
+    new_ds = LeRobotDataset.create(
         repo_id=out_name,
+        fps=ds_meta.fps,
+        features=ds_meta.features,
         root=out_root,
-        local_files_only=True  # pick up existing data
     )
 
     # ─── STEP A: Copy all original episodes into the new dataset ────────────────
