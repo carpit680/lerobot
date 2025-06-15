@@ -33,7 +33,7 @@ if username:
         st.sidebar.error(f"Error fetching repos: {e}")
 repo         = st.sidebar.selectbox('Select Dataset Repo', available_repos) if available_repos else ''
 cache_dir    = st.sidebar.text_input('Cache Directory', value=str(Path.home()/'.cache'/'lerobot'))
-max_eps      = st.sidebar.number_input('Max Episodes to Process', min_value=1, step=1, value=1)
+max_eps      = st.sidebar.number_input('Max Episodes to Process', min_value=0, step=1, value=1)
 out_repo     = st.sidebar.text_input('Output HF Repo (optional)', value='')
 delete_existing = st.sidebar.checkbox('Delete existing HF dataset before push')
 
@@ -120,6 +120,7 @@ if meta_root.exists():
     ds_meta = LeRobotDatasetMetadata(repo_id=repo,
                                      root=str(meta_root),
                                      local_files_only=True)
+    max_eps = ds_meta.total_episodes if max_eps == 0 else max_eps
     video_counts = {
         (ep,cam): int(cv2.VideoCapture(str(meta_root/ ds_meta.get_video_file_path(ep,cam)))
                       .get(cv2.CAP_PROP_FRAME_COUNT)) or 1
