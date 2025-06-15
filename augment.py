@@ -119,7 +119,7 @@ def run_augmentation(
     # 2) episode & frame loops
     for ep in range(num_eps):
         if log_cb: log_cb(f'▶️ Episode {ep+1}/{num_eps}')
-        if progress_cb: progress_cb(ep+1, num_eps)
+        if progress_cb: progress_cb(ep, num_eps)
 
         parquet = meta_root / ds_meta.get_data_file_path(ep)
         hf_ds = load_dataset('parquet', data_files=[str(parquet)], split='train')

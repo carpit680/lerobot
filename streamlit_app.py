@@ -15,10 +15,10 @@ from augment import run_augmentation
 
 # --- Streamlit UI ---
 st.set_page_config(page_title='Lerobot Dataset Augmentation', layout='wide')
-st.title('Lerobot Dataset Augmentation GUI')
+st.title('🤖 Lerobot Dataset Augmentation GUI')
 
 # Sidebar for dataset parameters
-st.sidebar.header('Dataset Parameters')
+st.sidebar.header('📦 Dataset Parameters')
 repo = st.sidebar.text_input('HF Dataset Repo (user/ds)', value='carpit680/giraffe_clean_desk')
 default_token = os.getenv('HF_TOKEN', '')
 token = st.sidebar.text_input('HF Access Token', type='password', value=default_token)
@@ -27,7 +27,7 @@ max_eps = st.sidebar.number_input('Max Episodes to Process', min_value=1, step=1
 out_repo = st.sidebar.text_input('Output HF Repo (optional)', value='')
 delete_existing = st.sidebar.checkbox('Delete existing HF dataset before push')
 
-st.sidebar.header('Augmentation Options')
+st.sidebar.header('🎨 Augmentation Options')
 light = st.sidebar.checkbox('Brightness/Contrast Jitter')
 seg_color = st.sidebar.checkbox('Segment & Random-Color Robot')
 env_swap_opt = st.sidebar.checkbox('Segment & Swap Background')
@@ -36,12 +36,20 @@ if env_swap_opt:
     bg_dir = st.sidebar.text_input('Background Images Directory Path')
 color_alpha = st.sidebar.slider('Color Overlay Alpha', 0.0, 1.0, 0.5, step=0.05)
 
-# Prepare metadata for progress and frame counts
+st.sidebar.header('🛠️ Controls')
+if 'stop' not in st.session_state:
+    st.session_state.stop = False
+if st.sidebar.button('⏹️ Stop Augmentation'):
+    st.session_state.stop = True
+if st.sidebar.button('🔄 Reset'):
+    st.session_state.stop = False
+    st.experimental_rerun()
+
+# Preload metadata and frame counts
 meta_root = Path(cache_dir) / repo
 if meta_root.exists():
     ds_meta = LeRobotDatasetMetadata(repo_id=repo, root=str(meta_root), local_files_only=True)
     cam_key = ds_meta.camera_keys[0]
-    # Precompute frame counts per episode
     video_counts = {}
     for ep in range(int(max_eps)):
         video_path = meta_root / ds_meta.get_video_file_path(ep, cam_key)
@@ -65,60 +73,51 @@ if seg_color or env_swap_opt:
     )
     mask_gen = SAM2AutomaticMaskGenerator(sam_model)
 
-# Placeholders for live display
+# Live display placeholders
+st.subheader("🔍 Live Frame Preview")
 col1, col2 = st.columns(2)
 orig_ph = col1.empty()
 aug_ph  = col2.empty()
-log_area = st.empty()
+log_box = st.empty()
+log_lines = []
 
-# Stop control
-if 'stop' not in st.session_state:
-    st.session_state.stop = False
-if st.sidebar.button('Stop Augmentation'):
-    st.session_state.stop = True
-
-# Callback helpers
-
+# Helpers
 def check_stop():
     if st.session_state.stop:
         raise StopIteration("Augmentation stopped by user")
 
 # Run augmentation
-st.header('Run Full Dataset Augmentation')
-if st.button('Run Augmentation'):
-    # Reset stop flag
+st.header('🚀 Run Full Dataset Augmentation')
+if st.button('▶️ Run Augmentation'):
     st.session_state.stop = False
-    # Delete existing if requested
+
     if delete_existing and out_repo.strip():
         try:
             HfApi().delete_repo(repo_id=out_repo.strip(), repo_type='dataset', token=token)
-            log_area.success(f'Deleted existing dataset: {out_repo.strip()}')
+            st.success(f'Deleted existing dataset: {out_repo.strip()}')
         except Exception as e:
-            log_area.error(f'Failed to delete existing dataset: {e}')
+            st.error(f'Failed to delete existing dataset: {e}')
 
-    # Labelled progress bars
-    st.text("Dataset Progress")
+    st.text("🔁 Dataset Augmentation Progress")
     dataset_progress = st.progress(0)
-    st.text("Episode Progress")
+    st.text("🎞️ Current Episode Frame Progress")
     episode_progress = st.progress(0)
 
     def log_cb(line: str):
-        log_area.text(line)
+        log_lines.append(line)
+        log_box.code("\n".join(log_lines[-30:]), language="log")
 
     def progress_cb(done: int, total: int):
         check_stop()
         dataset_progress.progress(done / total)
-        # reset episode progress at new dataset step
         episode_progress.progress(0)
 
     def frame_cb(orig: np.ndarray, aug_rgb: np.ndarray, ep: int, idx: int):
         check_stop()
-        # show frames
         orig_ph.image(orig, caption=f'E{ep} ▶️ Orig F{idx}', use_container_width=True)
         aug_ph.image(aug_rgb,  caption=f'E{ep} ▶️ Aug F{idx}', use_container_width=True)
-        # update episode progress
         total = video_counts.get(ep, 1)
-        episode_progress.progress(min(idx+1, total) / total)
+        episode_progress.progress(min(idx + 1, total) / total)
 
     try:
         run_augmentation(
@@ -138,7 +137,8 @@ if st.button('Run Augmentation'):
             log_cb=log_cb,
             frame_cb=frame_cb,
         )
-        st.success("✅ Augmentation complete!")
+        st.balloons()
+        st.success("🎉 Augmentation complete!")
     except StopIteration:
         st.warning("⏸️ Augmentation stopped by user.")
     except Exception as e:
