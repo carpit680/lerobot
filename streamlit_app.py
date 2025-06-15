@@ -43,7 +43,7 @@ if st.sidebar.button('⏹️ Stop Augmentation'):
     st.session_state.stop = True
 if st.sidebar.button('🔄 Reset'):
     st.session_state.stop = False
-    st.experimental_rerun()
+    st.rerun()
 
 # Preload metadata and frame counts
 meta_root = Path(cache_dir) / repo
