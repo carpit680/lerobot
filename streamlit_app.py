@@ -3,15 +3,10 @@ import streamlit as st
 from pathlib import Path
 import os
 import cv2
-import numpy as np
-from albumentations import Compose, RandomBrightnessContrast
-import torch
 from huggingface_hub import HfApi
 from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
 import urllib.parse
 
-from sam2.build_sam import build_sam2
-from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
 from augment import run_augmentation
 
 # --- Streamlit UI ---
@@ -89,18 +84,6 @@ if meta_root.exists():
 else:
     ds_meta = None
     video_counts = {}
-
-# Prepare mask generator
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-mask_gen = None
-if seg_color or env_swap_opt:
-    sam_model = build_sam2(
-        'configs/sam2.1/sam2.1_hiera_t.yaml',
-        '/mnt/data/Projects/sam2/checkpoints/sam2.1_hiera_tiny.pt',
-        device=device,
-        apply_postprocessing=False
-    )
-    mask_gen = SAM2AutomaticMaskGenerator(sam_model)
 
 # Live display placeholders
 st.subheader("🔍 Live Frame Preview")
