@@ -9,7 +9,6 @@ from typing import Callable, Optional
 import cv2
 import numpy as np
 import torch
-from albumentations import Compose, RandomBrightnessContrast
 from datasets import load_dataset
 from lerobot.common.datasets.lerobot_dataset import (
     LeRobotDataset,
@@ -17,6 +16,18 @@ from lerobot.common.datasets.lerobot_dataset import (
 )
 from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+
+from albumentations import (
+    Compose,
+    RandomBrightnessContrast,
+    RandomCrop,
+    Rotate,
+    HorizontalFlip,
+    VerticalFlip,
+    GaussNoise,          # ← corrected
+    Blur,
+    CoarseDropout,
+)
 
 def load_mask_generator(device: torch.device, config_path: str, checkpoint_path: str):
     sam = build_sam2(
@@ -76,6 +87,14 @@ def run_augmentation(
     env_swap_opt: bool = False,
     bg_dir: Optional[str] = None,
     alpha: float = 0.5,
+    # new flags
+    crop: bool = False,
+    rotate: bool = False,
+    hflip: bool = False,
+    vflip: bool = False,
+    noise: bool = False,
+    blur: bool = False,
+    occlusion: bool = False,
     progress_cb: Optional[Callable[[int,int],None]] = None,
     log_cb: Optional[Callable[[str],None]] = None,
     frame_cb: Optional[Callable[[dict,dict,int,int],None]] = None,
@@ -94,18 +113,23 @@ def run_augmentation(
     if log_cb: log_cb(f'Processing {num_eps}/{total_eps} episodes')
 
     skip = {'index','frame_index','episode_index','task_index','timestamp'}
-    vector_keys = [k for k, ft in ds_meta.features.items() if ft['dtype'] not in ['image','video'] and k not in skip]
+    vector_keys = [k for k, ft in ds_meta.features.items()
+                   if ft['dtype'] not in ['image','video'] and k not in skip]
 
-    pipeline = Compose([RandomBrightnessContrast(p=1)]) if light else None
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     mask_gen = load_mask_generator(device, config, checkpoint) if (seg_color or env_swap_opt) else None
 
     out_name = out_repo or f'{repo}-augmented'
     out_root = base / out_name
-    if out_root.exists(): shutil.rmtree(out_root)
-    new_ds = LeRobotDataset.create(repo_id=out_name, fps=ds_meta.fps, features=ds_meta.features, root=out_root)
+    if out_root.exists():
+        shutil.rmtree(out_root)
+    new_ds = LeRobotDataset.create(
+        repo_id=out_name,
+        fps=ds_meta.fps,
+        features=ds_meta.features,
+        root=out_root
+    )
 
-    # Loop over episodes
     for ep in range(num_eps):
         if log_cb: log_cb(f'▶️ Episode {ep+1}/{num_eps}')
         if progress_cb: progress_cb(ep+1, num_eps)
@@ -121,14 +145,44 @@ def run_augmentation(
         for i, row in enumerate(hf_ds):
             orig_dict, aug_dict = {}, {}
             frame_data = {}
+
             for cam, cap in caps.items():
                 cap.set(cv2.CAP_PROP_POS_FRAMES, i)
                 ok, frame = cap.read()
-                if not ok: continue
+                if not ok:
+                    continue
 
-                orig_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = pipeline(image=frame)['image'] if pipeline else frame
+                # build dynamic albumentations list
+                transforms = []
+                if light:
+                    transforms.append(RandomBrightnessContrast(p=1))
+                if crop:
+                    h, w = frame.shape[:2]
+                    transforms.append(RandomCrop(height=int(h*0.8), width=int(w*0.8), p=1))
+                if rotate:
+                    transforms.append(Rotate(limit=45, p=1))
+                if hflip:
+                    transforms.append(HorizontalFlip(p=1))
+                if vflip:
+                    transforms.append(VerticalFlip(p=1))
+                if noise:
+                    transforms.append(GaussNoise(var_limit=(10.0,50.0), p=1))
+                if blur:
+                    transforms.append(Blur(blur_limit=7, p=1))
+                if occlusion:
+                    h, w = frame.shape[:2]
+                    transforms.append(CoarseDropout(
+                        max_holes=8,
+                        max_height=int(h*0.1),
+                        max_width=int(w*0.1),
+                        p=1
+                    ))
 
+                aug_frame = frame
+                if transforms:
+                    aug_frame = Compose(transforms)(image=frame)['image']
+
+                img = aug_frame
                 if mask_gen:
                     torch.cuda.empty_cache()
                     masks = mask_gen.generate(img)
@@ -138,11 +192,13 @@ def run_augmentation(
                         combined = np.any([m['segmentation'] for m in masks], axis=0).astype(np.uint8)
                         img = env_swap(img, combined, bg_dir)
 
+                orig_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 aug_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 orig_dict[cam] = orig_rgb
                 aug_dict[cam] = aug_rgb
                 frame_data[cam] = aug_rgb
 
+            # copy over vector data
             for k in vector_keys:
                 frame_data[k] = np.array(row[k])
             new_ds.add_frame(frame_data)

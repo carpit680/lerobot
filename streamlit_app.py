@@ -20,14 +20,12 @@ token = st.sidebar.text_input('HF Access Token', type='password', value=default_
 
 hf_api = HfApi(token=token if token else None)
 username = st.sidebar.text_input('HuggingFace Username', value='carpit680')
-
 available_repos = []
 if username:
     try:
         available_repos = [repo.id for repo in hf_api.list_datasets(author=username)]
     except Exception as e:
         st.sidebar.error(f"Error fetching repos: {e}")
-
 repo = st.sidebar.selectbox('Select Dataset Repo', available_repos) if available_repos else ''
 
 cache_dir = st.sidebar.text_input('Cache Directory', value=str(Path.home()/'.cache'/'lerobot'))
@@ -35,7 +33,8 @@ max_eps = st.sidebar.number_input('Max Episodes to Process', min_value=1, step=1
 out_repo = st.sidebar.text_input('Output HF Repo (optional)', value='')
 delete_existing = st.sidebar.checkbox('Delete existing HF dataset before push')
 
-st.sidebar.header('🎨 Augmentation Options')
+# Augmentation options
+st.sidebar.header('🎨 Core Augmentation Options')
 light = st.sidebar.checkbox('Brightness/Contrast Jitter')
 seg_color = st.sidebar.checkbox('Segment & Random-Color Robot')
 env_swap_opt = st.sidebar.checkbox('Segment & Swap Background')
@@ -44,7 +43,17 @@ if env_swap_opt:
     bg_dir = st.sidebar.text_input('Background Images Directory Path')
 color_alpha = st.sidebar.slider('Color Overlay Alpha', 0.0, 1.0, 0.5, step=0.05)
 
-# Sidebar for controls
+# Extra augmentations
+st.sidebar.header('🎲 Extra Augmentations')
+crop = st.sidebar.checkbox('Random Crop')
+rotate = st.sidebar.checkbox('Rotate')
+hflip = st.sidebar.checkbox('Horizontal Flip')
+vflip = st.sidebar.checkbox('Vertical Flip')
+noise = st.sidebar.checkbox('Gaussian Noise')
+blur = st.sidebar.checkbox('Gaussian Blur')
+occlusion = st.sidebar.checkbox('Random Occlusion')
+
+# Controls
 st.sidebar.header('🛠️ Controls')
 controls = st.sidebar.columns(3)
 if controls[0].button('▶️ Run'):
@@ -58,13 +67,15 @@ if controls[2].button('🔄 Reset'):
     st.rerun()
 
 # Visualize Dataset button
-# Determine the output dataset name (default to '<repo>-augmented' if none provided)
-display_name = out_repo.strip() if out_repo.strip() else f"{repo}-augmented"
+display_name = out_repo.strip() or f"{repo}-augmented"
 path_param = urllib.parse.quote(f"/{display_name}/episode_0", safe='')
 visual_url = f"https://huggingface.co/spaces/lerobot/visualize_dataset?path={path_param}"
-st.sidebar.markdown(f"<a href='{visual_url}' target='_blank'><button style='width:100%'>🔗 Visualize Dataset</button></a>", unsafe_allow_html=True)
+st.sidebar.markdown(
+    f"<a href='{visual_url}' target='_blank'><button style='width:100%'>🔗 Visualize Dataset</button></a>",
+    unsafe_allow_html=True,
+)
 
-# Initialize session state
+# Session-state defaults
 if 'stop' not in st.session_state:
     st.session_state.stop = False
 if 'run' not in st.session_state:
@@ -85,7 +96,7 @@ else:
     ds_meta = None
     video_counts = {}
 
-# Live display placeholders
+# Placeholders for live preview
 st.subheader("🔍 Live Frame Preview")
 frame_placeholders = {}
 if ds_meta:
@@ -100,9 +111,8 @@ def check_stop():
     if st.session_state.stop:
         raise StopIteration("Augmentation stopped by user")
 
-# Run augmentation when triggered
+# Run augmentation
 if st.session_state.run:
-    # Delete existing if requested
     if delete_existing and out_repo.strip():
         try:
             HfApi().delete_repo(repo_id=out_repo.strip(), repo_type='dataset', token=token)
@@ -148,6 +158,14 @@ if st.session_state.run:
             env_swap_opt=env_swap_opt,
             bg_dir=bg_dir,
             alpha=color_alpha,
+            # new flags
+            crop=crop,
+            rotate=rotate,
+            hflip=hflip,
+            vflip=vflip,
+            noise=noise,
+            blur=blur,
+            occlusion=occlusion,
             progress_cb=progress_cb,
             log_cb=log_cb,
             frame_cb=frame_cb,
