@@ -19,9 +19,21 @@ st.title('🤖 Lerobot Dataset Augmentation GUI')
 
 # Sidebar for dataset parameters
 st.sidebar.header('📦 Dataset Parameters')
-repo = st.sidebar.text_input('HF Dataset Repo (user/ds)', value='carpit680/giraffe_clean_desk')
 default_token = os.getenv('HF_TOKEN', '')
 token = st.sidebar.text_input('HF Access Token', type='password', value=default_token)
+
+hf_api = HfApi(token=token if token else None)
+username = st.sidebar.text_input('HuggingFace Username', value='carpit680')
+
+available_repos = []
+if username:
+    try:
+        available_repos = [repo.id for repo in hf_api.list_datasets(author=username)]
+    except Exception as e:
+        st.sidebar.error(f"Error fetching repos: {e}")
+
+repo = st.sidebar.selectbox('Select Dataset Repo', available_repos) if available_repos else ''
+
 cache_dir = st.sidebar.text_input('Cache Directory', value=str(Path.home()/'.cache'/'lerobot'))
 max_eps = st.sidebar.number_input('Max Episodes to Process', min_value=1, step=1, value=1)
 out_repo = st.sidebar.text_input('Output HF Repo (optional)', value='')
