@@ -150,16 +150,41 @@ def run_augmentation(
                                   split='train')
         num_frames = len(hf_ds)
 
-        # build per-key sinusoidal offsets
         offsets_map = {}
         if joint_aug and aug_keys and num_frames > 1:
             t      = np.arange(num_frames)
             scales = np.sin(np.pi * t/(num_frames-1))
-            for k in aug_keys:
-                sample  = hf_ds[0][k]
-                n       = len(sample)
-                dirs    = np.random.choice([-1,1], size=(n,))
-                offsets_map[k] = np.outer(scales, dirs * joint_max)
+
+            # split out action vs observation.state keys
+            action_keys = [k for k in aug_keys if 'action' in k]
+            obs_keys    = [k for k in aug_keys if 'observation.state' in k]
+
+            # if exactly one action and one obs key, tie them
+            if len(action_keys) == 1 and len(obs_keys) == 1:
+                # verify they have the same length
+                act0 = hf_ds[0][action_keys[0]]
+                obs0 = hf_ds[0][obs_keys[0]]
+                if len(act0) != len(obs0):
+                    raise ValueError(f"action length ({len(act0)}) != obs length ({len(obs0)})")
+                n = len(act0)
+
+                # per-element random amplitude & direction
+                directions = np.random.choice([-1, 1], size=(n,))
+                amplitudes = np.random.uniform(0, joint_max, size=(n,))
+                # shape: (num_frames, n)
+                base_offsets = np.outer(scales, directions * amplitudes)
+
+                offsets_map[action_keys[0]]          = base_offsets
+                offsets_map[obs_keys[0]]             = base_offsets
+
+            else:
+                # fallback: independent per-key offsets, each element gets its own amp & dir
+                for k in aug_keys:
+                    sample = hf_ds[0][k]
+                    n      = len(sample)
+                    directions = np.random.choice([-1, 1], size=(n,))
+                    amplitudes = np.random.uniform(0, joint_max, size=(n,))
+                    offsets_map[k] = np.outer(scales, directions * amplitudes)
         else:
             offsets_map = {}
 

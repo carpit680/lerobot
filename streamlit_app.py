@@ -210,7 +210,7 @@ if st.session_state.run:
         st.session_state.aug_vals .append(aug_v)
 
         # helper to build & draw an Altair chart
-        def draw_altair(data_list, placeholder):
+        def draw_altair(data_list, placeholder, name):
             # build wide DataFrame
             df = pd.DataFrame(data_list)
             df['frame'] = df.index
@@ -226,24 +226,28 @@ if st.session_state.run:
             df_long['type'] = df_long['variable'].astype(int).apply(
                 lambda x: 'action' if x < half else 'state'
             )
+
             chart = (
                 alt.Chart(df_long)
                 .mark_line()
                 .encode(
-                    x='frame:Q',
-                    y='value:Q',
-                    color='variable:N',
-                    strokeDash=alt.StrokeDash('type:N'),
+                    x=alt.X('frame:Q', title='Time'),
+                    y=alt.Y('value:Q', axis=alt.Axis(title='Degrees')),
+                    color=alt.Color('variable:N', legend=None),
+                    strokeDash=alt.StrokeDash('type:N', legend=alt.Legend(title="Type")),
                 )
-                .properties(width=350, height=250)
+                .properties(
+                    width=350,
+                    height=250,
+                    title=name
+                )
             )
+
             placeholder.altair_chart(chart, use_container_width=True)
 
-        if (frm % UPDATE_EVERY) != 0:
-            return
-        # redraw both charts in full
-        draw_altair(st.session_state.orig_vals, orig_chart_ph)
-        draw_altair(st.session_state.aug_vals,  aug_chart_ph)
+        if (frm % UPDATE_EVERY) == 0:
+            draw_altair(st.session_state.orig_vals, orig_chart_ph, name="Original")
+            draw_altair(st.session_state.aug_vals,  aug_chart_ph,  name="Augmented")
 
     try:
         run_augmentation(
