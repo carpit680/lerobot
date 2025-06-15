@@ -61,16 +61,15 @@ if st.sidebar.button('🔄 Reset'):
 meta_root = Path(cache_dir) / repo
 if meta_root.exists():
     ds_meta = LeRobotDatasetMetadata(repo_id=repo, root=str(meta_root), local_files_only=True)
-    cam_key = ds_meta.camera_keys[0]
     video_counts = {}
-    for ep in range(int(max_eps)):
-        video_path = meta_root / ds_meta.get_video_file_path(ep, cam_key)
-        cap = cv2.VideoCapture(str(video_path))
-        video_counts[ep] = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
-        cap.release()
+    for cam_key in ds_meta.camera_keys:
+        for ep in range(int(max_eps)):
+            video_path = meta_root / ds_meta.get_video_file_path(ep, cam_key)
+            cap = cv2.VideoCapture(str(video_path))
+            video_counts[(ep, cam_key)] = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+            cap.release()
 else:
     ds_meta = None
-    cam_key = None
     video_counts = {}
 
 # Prepare mask generator
@@ -87,9 +86,12 @@ if seg_color or env_swap_opt:
 
 # Live display placeholders
 st.subheader("🔍 Live Frame Preview")
-col1, col2 = st.columns(2)
-orig_ph = col1.empty()
-aug_ph  = col2.empty()
+frame_placeholders = {}
+if ds_meta:
+    for cam_key in ds_meta.camera_keys:
+        cols = st.columns(2)
+        frame_placeholders[cam_key] = (cols[0].empty(), cols[1].empty())
+
 log_box = st.empty()
 log_lines = []
 
@@ -124,12 +126,14 @@ if st.button('▶️ Run Augmentation'):
         dataset_progress.progress(done / total)
         episode_progress.progress(0)
 
-    def frame_cb(orig: np.ndarray, aug_rgb: np.ndarray, ep: int, idx: int):
+    def frame_cb(orig_dict: dict, aug_dict: dict, ep: int, idx: int):
         check_stop()
-        orig_ph.image(orig, caption=f'E{ep} ▶️ Orig F{idx}', use_container_width=True)
-        aug_ph.image(aug_rgb,  caption=f'E{ep} ▶️ Aug F{idx}', use_container_width=True)
-        total = video_counts.get(ep, 1)
-        episode_progress.progress(min(idx + 1, total) / total)
+        for cam_key, (orig_ph, aug_ph) in frame_placeholders.items():
+            if cam_key in orig_dict and cam_key in aug_dict:
+                orig_ph.image(orig_dict[cam_key], caption=f'{cam_key} E{ep} ▶️ Orig F{idx}', use_container_width=True)
+                aug_ph.image(aug_dict[cam_key], caption=f'{cam_key} E{ep} ▶️ Aug F{idx}', use_container_width=True)
+                total = video_counts.get((ep, cam_key), 1)
+                episode_progress.progress(min(idx + 1, total) / total)
 
     try:
         run_augmentation(
