@@ -133,12 +133,18 @@ if meta_root.exists():
     ]
     # any key containing these substrings will be bumped
     aug_keys   = [k for k in vector_keys
-                  if any(x in k for x in ('joint','action','state'))]
+                  if any(x in k for x in ('action','observation.state'))]
+    if 'joint_names' not in st.session_state:
+        joint_names = ds_meta.features['action']['names']
+
+        st.session_state.joint_names = joint_names
 else:
     ds_meta = None
     video_counts = {}
     vector_keys = []
     aug_keys    = []
+    st.session_state.joint_names = []
+
 
 # ─── Live Frame Preview ──────────────────────────────────────────────────────
 st.subheader("🔍 Live Frame Preview")
@@ -163,6 +169,8 @@ if joint_aug and aug_keys:
 else:
     orig_chart_ph = aug_chart_ph = None
 
+if 'joint_values_ph' not in st.session_state:
+    st.session_state.joint_values_ph = st.empty()
 # ─── When Run is pressed ──────────────────────────────────────────────────────
 if st.session_state.run:
     # init buffers
@@ -209,18 +217,11 @@ if st.session_state.run:
         st.session_state.orig_vals.append(orig_v)
         st.session_state.aug_vals .append(aug_v)
 
-        # helper to build & draw an Altair chart
+        # draw helper (unchanged)…
         def draw_altair(data_list, placeholder, name):
-            # build wide DataFrame
             df = pd.DataFrame(data_list)
             df['frame'] = df.index
-            # melt to long
-            df_long = df.melt(
-                id_vars='frame',
-                var_name='variable',
-                value_name='value'
-            )
-            # split first half dims → action, rest → state
+            df_long = df.melt(id_vars='frame', var_name='variable', value_name='value')
             n = df.shape[1] - 1
             half = n // 2
             df_long['type'] = df_long['variable'].astype(int).apply(
@@ -231,23 +232,46 @@ if st.session_state.run:
                 alt.Chart(df_long)
                 .mark_line()
                 .encode(
-                    x=alt.X('frame:Q', title='Time'),
+                    x=alt.X('frame:Q', title='Frame'),
                     y=alt.Y('value:Q', axis=alt.Axis(title='Degrees')),
-                    color=alt.Color('variable:N', legend=None),
+                    color=alt.Color('variable:N', legend=None, scale=alt.Scale(scheme='category10')),
                     strokeDash=alt.StrokeDash('type:N', legend=alt.Legend(title="Type")),
                 )
-                .properties(
-                    width=350,
-                    height=250,
-                    title=name
-                )
+                .properties(width=350, height=250, title=name)
             )
-
             placeholder.altair_chart(chart, use_container_width=True)
 
         if (frm % UPDATE_EVERY) == 0:
             draw_altair(st.session_state.orig_vals, orig_chart_ph, name="Original")
             draw_altair(st.session_state.aug_vals,  aug_chart_ph,  name="Augmented")
+
+            # 3) below charts: joint names + values
+
+            ph = st.session_state.joint_values_ph
+            ph.empty()  # clear last frame’s columns
+
+            joint_names = st.session_state.joint_names
+            palette = [
+                "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+            ]
+            half = len(orig_v) // 2
+
+            cols = ph.columns(len(joint_names))
+            for i, col in enumerate(cols):
+                name  = joint_names[i]
+                color = palette[i % len(palette)]
+                o_a   = orig_v[i]
+                o_s   = orig_v[half + i]
+                u_a   = aug_v[i]
+                u_s   = aug_v[half + i]
+
+                col.markdown(f"<span style='color:{color}; font-weight:bold'>{name}</span>",
+                            unsafe_allow_html=True)
+                col.markdown(f"- Action: {o_a:.2f}")
+                col.markdown(f"- Aug Action: {u_a:.2f}")
+                col.markdown(f"- State: {o_s:.2f}")
+                col.markdown(f"- Aug State: {u_s:.2f}")
 
     try:
         run_augmentation(
